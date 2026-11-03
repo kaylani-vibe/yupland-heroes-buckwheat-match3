@@ -12,6 +12,10 @@ export const STONE = -2;
 export const HOLE = -3;
 export const CROWN = 5;
 export const GEM_COUNT = 5;
+export const SPECIAL = { NONE:0, RAY_H:1, RAY_V:2, BURST:3, RAINBOW:4 };
+export const specialType = value => value>=15 ? Math.floor((value-10)/GEM_COUNT) : 0;
+export const colorOf = value => value>=15 && specialType(value)!==SPECIAL.RAINBOW ? (value-10)%GEM_COUNT : value>=0 && value<GEM_COUNT ? value : -1;
+const specialValue = (type,color=0) => 10+type*GEM_COUNT+color;
 export const EXIT = { row: 9, col: 3 };
 export const CROWN_START = { row: 6, col: 3 };
 
@@ -38,21 +42,21 @@ export function findRuns(board) {
   for (let row = 0; row < ROWS; row++) {
     let col = 0;
     while (col < COLS) {
-      const value = board[row][col];
-      if (value < 0 || value >= GEM_COUNT) { col++; continue; }
+      const value = colorOf(board[row][col]);
+      if (value < 0) { col++; continue; }
       const start = col;
-      while (col < COLS && board[row][col] === value) col++;
-      if (col - start >= 3) runs.push({ value, length: col-start, cells: Array.from({length:col-start},(_,i)=>({row,col:start+i})) });
+      while (col < COLS && colorOf(board[row][col]) === value) col++;
+      if (col - start >= 3) runs.push({ value, direction:'h', length: col-start, cells: Array.from({length:col-start},(_,i)=>({row,col:start+i})) });
     }
   }
   for (let col = 0; col < COLS; col++) {
     let row = 0;
     while (row < ROWS) {
-      const value = board[row][col];
-      if (value < 0 || value >= GEM_COUNT) { row++; continue; }
+      const value = colorOf(board[row][col]);
+      if (value < 0) { row++; continue; }
       const start = row;
-      while (row < ROWS && board[row][col] === value) row++;
-      if (row-start >= 3) runs.push({ value, length:row-start, cells:Array.from({length:row-start},(_,i)=>({row:start+i,col})) });
+      while (row < ROWS && colorOf(board[row][col]) === value) row++;
+      if (row-start >= 3) runs.push({ value, direction:'v', length:row-start, cells:Array.from({length:row-start},(_,i)=>({row:start+i,col})) });
     }
   }
   return runs;
@@ -63,7 +67,9 @@ export function inside(a) { return a.row>=0 && a.row<ROWS && a.col>=0 && a.col<C
 export function swap(board,a,b) { [board[a.row][a.col],board[b.row][b.col]]=[board[b.row][b.col],board[a.row][a.col]]; }
 export function canSwap(board,a,b) {
   if (!inside(a) || !inside(b) || !adjacent(a,b)) return false;
-  if (board[a.row][a.col] < 0 || board[a.row][a.col] >= GEM_COUNT || board[b.row][b.col] < 0 || board[b.row][b.col] >= GEM_COUNT) return false;
+  const va=board[a.row][a.col],vb=board[b.row][b.col];
+  if(va<0||vb<0||va===CROWN||vb===CROWN)return false;
+  if(specialType(va)===SPECIAL.RAINBOW||specialType(vb)===SPECIAL.RAINBOW)return true;
   swap(board,a,b);
   const valid = findRuns(board).some(run => run.cells.some(cell =>
     (cell.row===a.row && cell.col===a.col) || (cell.row===b.row && cell.col===b.col)));
@@ -119,34 +125,89 @@ export function gravity(board,random) {
   }
 }
 
-export function createGame(seed=2) {
+export function createGame(seed=5) {
   const random=seededRandom(seed);
-  return {board:makeBoard(random),random,moves:MOVES,crowns:0,grecha:0,chain:0,finished:false,lastGain:0};
+  return {board:makeBoard(random),random,moves:MOVES,crowns:0,grecha:0,chain:0,finished:false,lastGain:0,lastAnimation:null};
 }
 
-function resolve(game) {
+const snapshot = board => board.map(row=>[...row]);
+
+const cellId = cell => `${cell.row},${cell.col}`;
+const fromId = id => { const [row,col]=id.split(',').map(Number); return {row,col}; };
+
+// Rays, Rainbow and L/T Bursts follow the developer's planSpecials/expand rules.
+function planSpecials(runs,preferred){
+  const created=new Map();
+  const put=(cell,type,color)=>{
+    const id=cellId(cell),old=created.get(id);
+    if(!old || type>old.type)created.set(id,{cell,type,color});
+  };
+  const pick=run=>run.cells.find(cell=>preferred.some(p=>cellId(p)===cellId(cell)))??run.cells[Math.floor(run.length/2)];
+  for(const run of runs){
+    if(run.length>=5)put(pick(run),SPECIAL.RAINBOW,run.value);
+    else if(run.length===4)put(pick(run),run.direction==='h'?SPECIAL.RAY_V:SPECIAL.RAY_H,run.value);
+  }
+  for(const h of runs.filter(r=>r.direction==='h'))for(const v of runs.filter(r=>r.direction==='v')){
+    const intersection=h.cells.find(cell=>v.cells.some(other=>cellId(other)===cellId(cell)));
+    if(intersection)put(intersection,SPECIAL.BURST,h.value);
+  }
+  return created;
+}
+
+function expandRemoval(board,initial,protect){
+  const cleared=new Set(initial),queue=[...initial];
+  while(queue.length){
+    const cell=fromId(queue.pop()),value=board[cell.row][cell.col],type=specialType(value);
+    if(!type||type===SPECIAL.RAINBOW)continue;
+    const affected=[];
+    if(type===SPECIAL.RAY_H)for(let col=0;col<COLS;col++)affected.push({row:cell.row,col});
+    if(type===SPECIAL.RAY_V)for(let row=0;row<ROWS;row++)affected.push({row,col:cell.col});
+    if(type===SPECIAL.BURST)for(let row=cell.row-1;row<=cell.row+1;row++)for(let col=cell.col-1;col<=cell.col+1;col++)affected.push({row,col});
+    for(const other of affected){
+      if(!inside(other))continue;
+      const id=cellId(other),target=board[other.row][other.col];
+      if(target<0||target===CROWN||protect.has(id)||cleared.has(id))continue;
+      cleared.add(id);queue.push(id);
+    }
+  }
+  return cleared;
+}
+
+function resolve(game, animation, preferred, firstClear) {
   let chain=0, gain=0;
+  let forced=firstClear;
   while (chain<40) {
-    const runs=findRuns(game.board);
-    if (!runs.length) break;
+    const runs=forced?[]:findRuns(game.board);
+    if (!runs.length&&!forced) break;
     chain++;
-    const cells=new Set();
-    for (const run of runs) for (const cell of run.cells) cells.add(`${cell.row},${cell.col}`);
-    gain += cells.size + runs.reduce((n,run)=>n+(run.length>=5?5:run.length===4?2:0),0) + (chain>1?chain*2:0);
+    const created=forced?new Map():planSpecials(runs,chain===1?preferred:[]);
+    const protect=new Set(created.keys());
+    const initial=forced??new Set(runs.flatMap(run=>run.cells.map(cellId)));
+    const cells=expandRemoval(game.board,initial,protect);
+    for(const id of protect)cells.delete(id);
+    forced=null;
+    const waveGain=cells.size + runs.reduce((n,run)=>n+(run.length>=5?5:run.length===4?2:0),0) + (chain>1?chain*2:0);
+    gain += waveGain;
     for (const key of cells) {
       const [row,col]=key.split(',').map(Number);
       game.board[row][col]=EMPTY;
     }
+    for(const {cell,type,color} of created.values())game.board[cell.row][cell.col]=specialValue(type,color);
     gravity(game.board,game.random);
+    const afterGravity=snapshot(game.board);
+    let delivered=false;
     if (game.board[EXIT.row][EXIT.col]===CROWN) {
+      delivered=true;
       game.crowns++;
       game.board[EXIT.row][EXIT.col]=EMPTY;
       gravity(game.board,game.random);
     }
+    animation.steps.push({cleared:[...cells].map(key=>key.split(',').map(Number)),created:[...created.values()].map(({cell,type,color})=>({row:cell.row,col:cell.col,value:specialValue(type,color)})),afterGravity,afterDelivery:snapshot(game.board),delivered,wave:chain,gained:waveGain,runs:runs.map(run=>({length:run.length,cells:run.cells}))});
   }
   // One new crown per completed cascade; no surprise multiple deliveries in a single swap.
   if (game.crowns<TARGET_CROWNS && !game.board.some(row=>row.includes(CROWN))) {
     game.board[CROWN_START.row][CROWN_START.col]=CROWN;
+    animation.spawned=true;
   }
   game.grecha+=gain;
   game.lastGain=gain;
@@ -157,14 +218,26 @@ function resolve(game) {
     const fresh=makeBoard(game.random,false);
     if (crown) fresh[crown.row][crown.col]=CROWN;
     game.board=fresh;
+    animation.shuffled=true;
   }
+  animation.final=snapshot(game.board);
 }
 
 export function playSwap(game,a,b) {
   if (game.finished || !canSwap(game.board,a,b)) return false;
+  const animation={a:{...a},b:{...b},steps:[],spawned:false,shuffled:false,final:null};
   swap(game.board,a,b);
+  const va=game.board[a.row][a.col],vb=game.board[b.row][b.col];
+  let firstClear=null;
+  if(specialType(va)===SPECIAL.RAINBOW||specialType(vb)===SPECIAL.RAINBOW){
+    const color=specialType(va)===SPECIAL.RAINBOW?colorOf(vb):colorOf(va);
+    firstClear=new Set([cellId(specialType(va)===SPECIAL.RAINBOW?a:b)]);
+    if(color<0){for(let row=0;row<ROWS;row++)for(let col=0;col<COLS;col++)if(game.board[row][col]>=0&&game.board[row][col]!==CROWN)firstClear.add(`${row},${col}`);}
+    else for(let row=0;row<ROWS;row++)for(let col=0;col<COLS;col++)if(colorOf(game.board[row][col])===color)firstClear.add(`${row},${col}`);
+  }
   game.moves--;
-  resolve(game);
+  resolve(game,animation,[a,b],firstClear);
+  game.lastAnimation=animation;
   return true;
 }
 
