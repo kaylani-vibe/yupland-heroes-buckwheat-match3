@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,playSwap,canSwap,CROWN,ROWS,COLS,SPECIAL,specialType,colorOf} from './engine.mjs';
+import {createGame,playSwap,canSwap,CROWN,ROWS,COLS,MOVES,SPECIAL,specialType,colorOf} from './engine.mjs';
 
 const value=(type,color=0)=>10+type*5+color;
 const key=(row,col)=>`${row},${col}`;
@@ -11,7 +11,7 @@ for(const left of [SPECIAL.RAY_H,SPECIAL.RAY_V])for(const right of [SPECIAL.RAY_
     const g=createGame();g.board[a.row][a.col]=value(left,0);g.board[b.row][b.col]=value(right,1);
     const before=g.board.map(r=>[...r]);
     assert.ok(canSwap(g.board,a,b));assert.deepEqual(g.board,before);
-    assert.ok(playSwap(g,a,b));assert.equal(g.moves,24);
+    assert.ok(playSwap(g,a,b));assert.equal(g.moves,MOVES-1);
     const step=g.lastAnimation.steps[0],actual=new Set(step.cleared.map(([r,c])=>key(r,c)));
     for(let row=0;row<ROWS;row++)for(let col=0;col<COLS;col++){
       const expected=before[row][col]>=0&&before[row][col]!==CROWN&&(row===b.row||col===b.col);
@@ -43,7 +43,7 @@ for(const type of [SPECIAL.RAY_H,SPECIAL.RAY_V,SPECIAL.BURST])for(const reverse 
     const step=g.lastAnimation.steps[0],removed=new Set(step.cleared.map(([r,c])=>key(r,c)));
     assert.equal(step.transformed.length,expected);
     for(const change of step.transformed){assert.equal(specialType(change.value),type);assert.equal(colorOf(change.value),0);assert.ok(removed.has(key(change.row,change.col)));}
-    assert.equal(g.moves,24);
+    assert.equal(g.moves,MOVES-1);
     assert.ok(!step.cleared.some(([r,c])=>r===6&&c===3),'crown is preserved');
     assert.equal(g.board[3][1],-2);assert.equal(g.board[5][6],-2);
   });

@@ -32,7 +32,7 @@ test('crown enters the lowest refill vacancy rather than overwriting a piece',()
 
 test('a full entry segment and a blocked lower segment do not create a crown',()=>{
   const g=fixture();assert.equal(gravity(g.board,seededRandom(3),3),null);
-  g.board[3][3]=STONE;g.board[6][3]=EMPTY;
+  g.board[3].fill(STONE);g.board[6][3]=EMPTY;
   assert.equal(gravity(g.board,seededRandom(4),3),null);assert.equal(count(g.board),0);
 });
 

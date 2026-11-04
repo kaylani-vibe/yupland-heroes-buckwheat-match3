@@ -12,12 +12,34 @@ test('a crown rolls diagonally around a fixed stone into a blocked cavity',()=>{
   assert.deepEqual(route.from,{row:2,col:1});assert.deepEqual(route.path,[{row:2,col:1},{row:3,col:2}]);
 });
 
+for(const [col,side] of [[1,2],[6,5]])test(`crown above obstacle ${col} takes an adjacent cleared cell before its neighbour refills it`,()=>{
+  const board=solid(),paths=[];
+  board[4][col]=CROWN;board[5][col]=STONE;board[6][col]=STONE;board[5][side]=EMPTY;
+  gravity(board,seededRandom(4),null,paths);
+  assert.equal(board[5][side],CROWN);
+  assert.deepEqual(paths.find(p=>p.value===CROWN).path,[{row:4,col},{row:5,col:side}]);
+});
+
+test('a supported ordinary piece can also roll into a neighbouring open column',()=>{
+  const board=solid(),paths=[];
+  board[2][1]=0;board[3][1]=STONE;board[3][2]=EMPTY;
+  gravity(board,seededRandom(4),null,paths);
+  assert.equal(board[3][2],0);
+});
+
 test('straight falling has priority over a diagonal slide',()=>{
   const board=solid(),paths=[];
   board[2][1]=CROWN;board[3][1]=EMPTY;board[3][2]=EMPTY;
   gravity(board,seededRandom(2),null,paths);
   assert.equal(board[3][1],CROWN);
   assert.ok(!paths.find(p=>p.value===CROWN).path.some(p=>p.col!==1));
+});
+
+test('a crown falls straight into its exit before a supported neighbour can take that vacancy',()=>{
+  const board=solid(),paths=[];
+  board[8][1]=CROWN;board[9][1]=EMPTY;board[9][0]=STONE;
+  gravity(board,seededRandom(7),null,paths);
+  assert.equal(board[9][1],CROWN);
 });
 
 test('a vacancy below stone receives a neighbouring piece, not a new piece through stone',()=>{

@@ -1,7 +1,8 @@
 import './style.css';
 import './kingdom.css';
 import './screen.css';
-import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,STONE,HOLE,ENTRY_COLS,EXITS,SPECIAL,colorOf,specialType,createGame,playSwap,payout} from './engine.mjs';
+import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,STONE,HOLE,ENTRY_COLS,EXITS,SPECIAL,colorOf,specialType,createGame,playSwap} from './engine.mjs';
+import {createInventory} from './inventory.mjs';
 
 // Keyed pieces and the remove/fall/refill sequence adapt PlayBoard.tsx from
 // the developer-supplied YupMatch archive (02 Nov 2026).
@@ -9,12 +10,22 @@ const names=['гречневое зерно','колос','лист','ягоды
 const app=document.querySelector('#app');
 const previewBoard=createGame().board;
 let nextId=1,game=null,selected=null,pointerStart=null,ignoreClick=false,busy=false;
-let pieces=makePieces(previewBoard);
+let pieces=makePieces(previewBoard),bagOpen=false;
+const qaMode=import.meta.env.DEV&&[...new URLSearchParams(location.search).keys()].some(k=>k.startsWith('qa'));
+const inventory=createInventory(localStorage,qaMode?'buckwheat-match3:qa-crowns':'buckwheat-match3:crowns');
+const crownWord=n=>n%10===1&&n%100!==11?'корона':n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?'короны':'корон';
 function newGame(){
   const next=createGame();
   if(import.meta.env.DEV){
     const pair={ 'ray-ray':[15,21], 'ray-bomb':[15,26], 'rainbow-ray':[30,15], 'rainbow-bomb':[30,25] }[new URLSearchParams(location.search).get('qaCombo')];
     if(pair){next.board[4][3]=pair[0];next.board[4][4]=pair[1];}
+    if(new URLSearchParams(location.search).get('qaCrown')==='blocked'){
+      next.board[4][6]=CROWN;
+      next.board[5][3]=0;next.board[5][4]=0;next.board[5][5]=1;next.board[4][5]=0;
+    }
+  }
+  if(import.meta.env.DEV&&new URLSearchParams(location.search).get('qaResult')==='two'){
+    next.crowns=2;next.moves=0;next.finished=true;
   }
   return next;
 }
@@ -36,7 +47,7 @@ function cellMarkup(value,row,col){
   return `<button class="cell gem ${chosen?'selected':''} ${entry?'entry':''} ${exit?'exit':''}" data-row="${row}" data-col="${col}" aria-label="${label||'пусто'}, ряд ${row+1}, столбец ${col+1}${entry?', вход короны':''}${exit?', выход короны':''}" aria-pressed="${chosen}"></button>`;
 }
 function render(){
-  const started=!!game,finished=game?.finished,result=finished?payout(game):null,board=game?.board??previewBoard;
+  const started=!!game,finished=game?.finished,board=game?.board??previewBoard;
   const crowns=game?.crowns??0;
   app.innerHTML=`<main class="shell">
     <div class="ambience" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
@@ -56,8 +67,9 @@ function render(){
         <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div></div><div class="route-layer" aria-hidden="true">${routeMarkers()}</div>
       </div></div>
     </section>
-    ${!started?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>Верни короны</h2><p>Освобождай место под верхними стрелками.<br>Опусти три короны за ${MOVES} ходов.</p><div class="entry-price">Вход <b>100 золота</b><span>Каждая корона принесёт 50 золота</span></div><button class="primary" data-action="start">Начать партию</button></div></div>`:''}
-    ${finished?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>${game.crowns===3?'Все короны<br>доставлены!':'Ходы закончились'}</h2><p>Короны: <b>${game.crowns} / 3</b><br>Возврат: <b>${result.returned} золота</b><br>Итог: <b class="${result.net>=0?'positive':'negative'}">${result.net>0?'+':''}${result.net} золота</b><br>Греча: <b>${result.grecha}</b></p><button class="primary" data-action="restart">Играть ещё</button></div></div>`:''}
+    ${!started?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>Верни короны</h2><p>Освобождай место под верхними стрелками.<br>Опусти три короны за ${MOVES} ходов.</p><div class="entry-price">Вход <b>100 золота</b></div><button class="primary" data-action="start">Начать партию</button><button class="bag-link" data-action="bag">Рюкзак · ${inventory.count()} ${crownWord(inventory.count())}</button></div></div>`:''}
+    ${finished?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>Получено<br>${game.crowns} ${crownWord(game.crowns)}</h2><p>Греча: <b>${game.grecha}</b></p><button class="primary" data-action="restart">Играть ещё</button><button class="bag-link" data-action="bag">Открыть рюкзак</button></div></div>`:''}
+    ${bagOpen?`<div class="overlay bag-overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><h2>Рюкзак</h2><p class="inventory-count">${inventory.count()} ${crownWord(inventory.count())}</p><button class="primary" data-action="close-bag">Вернуться</button></div></div>`:''}
   </main>`;
 }
 const layer=()=>app.querySelector('.piece-layer');
@@ -131,7 +143,7 @@ async function performSwap(a,b){
     }
   }
   if(game.lastAnimation.shuffled){layer()?.classList.add('shuffling');await wait(230);pieces=makePieces(game.board);layer().innerHTML=pieces.map(pieceMarkup).join('');layer()?.classList.remove('shuffling');await wait(230);}
-  busy=false;render();
+  inventory.collect(game);busy=false;render();
 }
 function choose(row,col){
   if(!game||game.finished||busy)return;
@@ -144,7 +156,9 @@ function choose(row,col){
 }
 app.addEventListener('click',event=>{
   const action=event.target.closest('[data-action]')?.dataset.action;
-  if(action){game=newGame();pieces=makePieces(game.board);selected=null;busy=false;render();return;}
+  if(action==='bag'){bagOpen=true;render();return;}
+  if(action==='close-bag'){bagOpen=false;render();return;}
+  if(action){game=newGame();inventory.collect(game);pieces=makePieces(game.board);selected=null;busy=false;bagOpen=false;render();return;}
   if(ignoreClick){ignoreClick=false;return;}
   const cell=event.target.closest('.gem');if(cell)choose(Number(cell.dataset.row),Number(cell.dataset.col));
 });

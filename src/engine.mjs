@@ -3,7 +3,7 @@
 // Crown, obstacles, irregular board, payout and move rules are new to this prototype.
 export const ROWS = 10;
 export const COLS = 8;
-export const MOVES = 25;
+export const MOVES = 30;
 export const ENTRY_GOLD = 100;
 export const CROWN_GOLD = 50;
 export const TARGET_CROWNS = 3;
@@ -126,7 +126,20 @@ export function gravity(board,random,crownColumn=null,paths=[]) {
   };
   for(let round=0;round<ROWS*COLS*ROWS;round++){
     let moved=false;
-    // Straight falling always has priority over rolling sideways.
+    // Never let a neighbouring piece take an open cell directly below a crown.
+    for(let row=ROWS-2;row>=0;row--)for(let col=0;col<COLS;col++){
+      if(board[row][col]===CROWN&&board[row+1][col]===EMPTY){move(row,col,row+1,col);moved=true;}
+    }
+    // A piece resting on a fixed block claims an adjacent cleared cell before
+    // the neighbouring column refills it. Crowns get first choice of that gap.
+    for(const crownFirst of [true,false])for(let row=ROWS-2;row>=0;row--)for(let col=0;col<COLS;col++){
+      if(!tokens[row][col]||(board[row][col]===CROWN)!==crownFirst)continue;
+      if(board[row+1][col]!==STONE&&board[row+1][col]!==HOLE)continue;
+      const sides=col<COLS/2?[col+1,col-1]:[col-1,col+1];
+      const side=sides.find(c=>c>=0&&c<COLS&&board[row+1][c]===EMPTY);
+      if(side!==undefined){move(row,col,row+1,side);moved=true;}
+    }
+    // Unobstructed pieces still fall straight before ordinary cavity filling.
     for(let row=ROWS-2;row>=0;row--)for(let col=0;col<COLS;col++){
       if(tokens[row][col]&&board[row+1][col]===EMPTY){move(row,col,row+1,col);moved=true;}
     }
