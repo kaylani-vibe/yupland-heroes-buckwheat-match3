@@ -28,7 +28,7 @@ const pieceMarkup=p=>`<span class="piece ${p.value===CROWN?'royal':''} ${special
 const routeArrow='<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M14 3h12v16h10L20 37 4 19h10z"/></svg>';
 const routeMarkers=()=>ENTRY_COLS.map(col=>`<span class="route-marker entry-route" style="--col:${col}">${routeArrow}</span><span class="route-marker exit-route" style="--col:${col}">${routeArrow}</span>`).join('');
 function cellMarkup(value,row,col){
-  if(value===HOLE)return '<span class="cell hole" aria-hidden="true"></span>';
+  if(value===HOLE)return '<span class="cell hole edge-stone" aria-label="Камень на границе поля"><span class="rock" aria-hidden="true"></span></span>';
   if(value===STONE)return '<span class="cell stone" aria-label="Неподвижный камень"><span class="rock"></span></span>';
   const chosen=selected?.row===row&&selected?.col===col;
   const type=specialType(value),label=type===SPECIAL.RAINBOW?'Радуга':type?`${names[colorOf(value)]}, ${type===SPECIAL.BURST?'Вспышка':'Луч'}`:names[value];
