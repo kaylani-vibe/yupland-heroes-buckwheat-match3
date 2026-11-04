@@ -1,4 +1,5 @@
 import './style.css';
+import './kingdom.css';
 import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,CROWN_START,STONE,HOLE,EXIT,SPECIAL,colorOf,specialType,createGame,playSwap,payout} from './engine.mjs';
 
 // Keyed pieces and the remove/fall/refill sequence adapt PlayBoard.tsx from
@@ -32,7 +33,33 @@ function cellMarkup(value,row,col){
 }
 function render(){
   const started=!!game,finished=game?.finished,result=finished?payout(game):null,board=game?.board??previewBoard;
-  app.innerHTML=`<main class="shell"><header class="masthead"><span class="brand">Yupland Heroes</span><h1>Корона гречневого королевства</h1><p>Опусти три короны к выходу за ${MOVES} ходов</p></header><section class="game-panel" aria-label="Игровая партия"><div class="stats"><div class="stat"><span class="stat-label">Короны</span><strong>${started?game.crowns:0}<span class="muted"> / ${TARGET_CROWNS}</span></strong></div><div class="stat"><span class="stat-label">Ходы</span><strong>${started?game.moves:MOVES}</strong></div><div class="stat"><span class="stat-label">Греча</span><strong>${started?game.grecha:0}</strong></div></div><div class="board-frame"><div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div></div><div class="exit-label">↓ Выход короны</div></div><div class="rule"><span>Вход <b>100 золота</b></span><span>За корону <b>50 золота</b></span></div><p class="hint" role="status">${!started?'Совмещай по три одинаковых фишки. Корона падает вместе с ними.':finished?'Партия завершена.':game.lastGain?`+${game.lastGain} гречи${game.chain>1?` · каскад ×${game.chain}`:''}`:'Коснись двух соседних фишек или проведи по ним.'}</p></section><p class="footnote">${started?'Три короны: 150 золота · две: 100 · одна: 50':'Победа зависит от доставленных корон. Греча копится за комбинации.'}</p>${!started?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(5)}</div><h2>Доставь короны</h2><p>Три короны за ${MOVES} ходов. Каждая принесёт 50 золота при входе за 100.</p><button class="primary" data-action="start">Начать партию</button></div></div>`:''}${finished?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(5)}</div><h2>${game.crowns===3?'Все короны доставлены!':'Ходы закончились'}</h2><p>Короны: <b>${game.crowns} / 3</b><br>Возврат: <b>${result.returned} золота</b><br>Итог: <b class="${result.net>=0?'positive':'negative'}">${result.net>0?'+':''}${result.net} золота</b><br>Греча: <b>${result.grecha}</b></p><button class="primary" data-action="restart">Играть ещё</button></div></div>`:''}</main>`;
+  const crowns=game?.crowns??0;
+  app.innerHTML=`<main class="shell">
+    <div class="ambience" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <header class="masthead">
+      <span class="lantern-halo left" aria-hidden="true"></span><span class="lantern-halo right" aria-hidden="true"></span>
+      <img class="canopy-art" src="/art/kingdom-header.png" alt="" width="1768" height="870" draggable="false">
+      <span class="brand">Yupland Heroes</span>
+      <h1>Корона гречневого<br>королевства</h1>
+    </header>
+    <section class="game-panel" aria-label="Игровая партия">
+      <div class="mission-row">
+        <div class="mission-plaque">${icon(CROWN)}<div><span class="mission-eyebrow">Задание королевства</span><p>Опусти <b>3 короны</b> к выходу</p></div></div>
+        <div class="stat moves-stat"><span class="stat-label">Ходы</span><strong class="moves-count">${started?game.moves:MOVES}</strong><span class="laurel" aria-hidden="true">❧</span></div>
+      </div>
+      <div class="journey-strip"><div class="crown-tally" aria-label="Доставлено корон: ${crowns} из 3">${Array.from({length:3},(_,i)=>`<span class="crown-slot ${i<crowns?'collected':''}">${icon(CROWN)}</span>`).join('')}<b>${crowns}<span> / ${TARGET_CROWNS}</span></b></div><div class="grecha-tally">${icon(0)}<span>Греча <b>${game?.grecha??0}</b></span></div></div>
+      <div class="board-frame">
+        <img class="board-art" src="/art/kingdom-frame.png" alt="" draggable="false">
+        <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div></div>
+      </div>
+      <div class="exit-scene"><span class="exit-trail" aria-hidden="true"></span><img src="/art/exit-portal.png" alt="" class="exit-portal" draggable="false"><span class="exit-label">Выход короны</span></div>
+      <p class="hint" role="status">${!started?'Собирай ряды, освобождай путь коронам':finished?'Партия завершена':game.lastGain?`+${game.lastGain} гречи${game.chain>1?` · каскад ×${game.chain}`:''}`:'Соединяй одинаковые фишки и смешивай бонусы'}</p>
+      <div class="rule"><span>Вход <b>100 золота</b></span><span>За корону <b>50 золота</b></span></div>
+    </section>
+    <p class="footnote">Три короны: 150 золота · две: 100 · одна: 50</p>
+    ${!started?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>Верни короны</h2><p>Освободи путь трём коронам<br>за ${MOVES} ходов.</p><div class="entry-price">Вход <b>100 золота</b><span>Каждая корона принесёт 50 золота</span></div><button class="primary" data-action="start">Начать партию</button></div></div>`:''}
+    ${finished?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>${game.crowns===3?'Все короны<br>доставлены!':'Ходы закончились'}</h2><p>Короны: <b>${game.crowns} / 3</b><br>Возврат: <b>${result.returned} золота</b><br>Итог: <b class="${result.net>=0?'positive':'negative'}">${result.net>0?'+':''}${result.net} золота</b><br>Греча: <b>${result.grecha}</b></p><button class="primary" data-action="restart">Играть ещё</button></div></div>`:''}
+  </main>`;
 }
 const layer=()=>app.querySelector('.piece-layer');
 const effectLayer=()=>app.querySelector('.effect-layer');
