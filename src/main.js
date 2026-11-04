@@ -8,6 +8,14 @@ const app=document.querySelector('#app');
 const previewBoard=createGame().board;
 let nextId=1,game=null,selected=null,pointerStart=null,ignoreClick=false,busy=false;
 let pieces=makePieces(previewBoard);
+function newGame(){
+  const next=createGame();
+  if(import.meta.env.DEV){
+    const pair={ 'ray-ray':[15,21], 'ray-bomb':[15,26], 'rainbow-ray':[30,15], 'rainbow-bomb':[30,25] }[new URLSearchParams(location.search).get('qaCombo')];
+    if(pair){next.board[4][3]=pair[0];next.board[4][4]=pair[1];}
+  }
+  return next;
+}
 function makePieces(board){return board.flatMap((line,row)=>line.flatMap((value,col)=>value>=0?[{id:nextId++,row,col,value}]:[]));}
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
@@ -33,10 +41,11 @@ function updatePositions(){for(const p of pieces){const el=nodeFor(p);if(el)el.s
 function addPiece(p){layer()?.insertAdjacentHTML('beforeend',pieceMarkup(p));}
 function removePiece(p){nodeFor(p)?.remove();pieces=pieces.filter(q=>q.id!==p.id);}
 const pieceAt=(row,col)=>pieces.find(p=>p.row===row&&p.col===col);
-function flash(cells,wave,runs){
+function flash(cells,wave,runs,effects=[],consumed=[]){
   const fx=effectLayer();if(!fx)return;
   fx.innerHTML=cells.map(([row,col])=>`<i class="impact" style="--x:${col};--y:${row}"></i>`).join('');
-  for(const [row,col] of cells){const type=specialType(pieceAt(row,col)?.value);if(type===SPECIAL.RAY_H||type===SPECIAL.RAY_V)fx.insertAdjacentHTML('beforeend',`<i class="match-beam ${type===SPECIAL.RAY_H?'horizontal':'vertical'}" style="--x:${type===SPECIAL.RAY_H?0:col};--y:${type===SPECIAL.RAY_H?row:0};--span:${type===SPECIAL.RAY_H?COLS:ROWS}"></i>`);if(type===SPECIAL.BURST||type===SPECIAL.RAINBOW)fx.insertAdjacentHTML('beforeend',`<i class="power-burst" style="--x:${col};--y:${row}"></i>`);}
+  for(const [row,col] of cells){if(consumed.includes(`${row},${col}`))continue;const type=specialType(pieceAt(row,col)?.value);if(type===SPECIAL.RAY_H||type===SPECIAL.RAY_V)fx.insertAdjacentHTML('beforeend',`<i class="match-beam ${type===SPECIAL.RAY_H?'horizontal':'vertical'}" style="--x:${type===SPECIAL.RAY_H?0:col};--y:${type===SPECIAL.RAY_H?row:0};--span:${type===SPECIAL.RAY_H?COLS:ROWS}"></i>`);if(type===SPECIAL.BURST||type===SPECIAL.RAINBOW)fx.insertAdjacentHTML('beforeend',`<i class="power-burst" style="--x:${col};--y:${row}"></i>`);}
+  for(const effect of effects)fx.insertAdjacentHTML('beforeend',`<i class="match-beam ${effect.type==='h'?'horizontal':'vertical'}" style="--x:${effect.col};--y:${effect.row};--span:${effect.type==='h'?COLS:ROWS}"></i>`);
   for(const run of runs)if(run.length>=4){const first=run.cells[0],last=run.cells.at(-1);fx.insertAdjacentHTML('beforeend',`<i class="match-beam ${first.row===last.row?'horizontal':'vertical'}" style="--x:${first.col};--y:${first.row};--span:${run.length}"></i>`);}
   if(wave>1)fx.insertAdjacentHTML('beforeend',`<span class="combo-pop">Каскад ×${wave}</span>`);
   setTimeout(()=>{if(fx.isConnected)fx.innerHTML='';},600);
@@ -73,8 +82,10 @@ async function performSwap(a,b){
   await animateSwap(a,b);
   if(!valid){await animateSwap(a,b);busy=false;render();return;}
   for(const step of game.lastAnimation.steps){
+    for(const change of step.transformed??[]){const p=pieceAt(change.row,change.col);if(p){p.value=change.value;const el=nodeFor(p);if(el){el.classList.add('powered','transforming');el.innerHTML=pieceInner(p);}}}
+    if(step.transformed?.length){await wait(320);for(const p of pieces)nodeFor(p)?.classList.remove('transforming');}
     for(const created of step.created){const p=pieceAt(created.row,created.col);if(p){p.value=created.value;const el=nodeFor(p);if(el){el.classList.add('powered');el.innerHTML=pieceInner(p);}}}
-    flash(step.cleared,step.wave,step.runs);
+    flash(step.cleared,step.wave,step.runs,step.effects,step.consumed);
     for(const [row,col] of step.cleared)nodeFor(pieceAt(row,col))?.classList.add('dying');
     await wait(230);
     for(const [row,col] of step.cleared){const p=pieceAt(row,col);if(p)removePiece(p);}
@@ -104,7 +115,7 @@ function choose(row,col){
 }
 app.addEventListener('click',event=>{
   const action=event.target.closest('[data-action]')?.dataset.action;
-  if(action){game=createGame();pieces=makePieces(game.board);selected=null;busy=false;render();return;}
+  if(action){game=newGame();pieces=makePieces(game.board);selected=null;busy=false;render();return;}
   if(ignoreClick){ignoreClick=false;return;}
   const cell=event.target.closest('.gem');if(cell)choose(Number(cell.dataset.row),Number(cell.dataset.col));
 });
