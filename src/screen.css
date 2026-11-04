@@ -8,14 +8,14 @@ html,body,#app{height:100%;min-height:0;overflow:hidden}
 .board-area{flex:1;min-height:0;width:100%;padding:23px 0;display:flex;justify-content:center;align-items:flex-start;container-type:size}
 .board-frame{width:min(100cqw,80cqh);max-width:100%;height:auto;aspect-ratio:4/5;flex:none;padding:15px 12px}
 .board{width:100%;aspect-ratio:8/10}
-.route-layer{position:absolute;inset:0;z-index:6;pointer-events:none}
-.route-marker{position:absolute;left:calc(var(--col)*12.5%);width:12.5%;height:10%;display:flex;justify-content:center;pointer-events:none}
-.entry-route{top:0;align-items:flex-start}
-.exit-route{top:90%;align-items:flex-end}
-.route-marker svg{width:58%;height:58%;max-width:29px;max-height:29px;filter:drop-shadow(0 2px 2px #170c05);overflow:visible}
+.route-layer{position:absolute;inset:15px 12px;z-index:6;pointer-events:none}
+.route-marker{position:absolute;left:calc(var(--col)*12.5%);width:12.5%;height:22px;display:flex;justify-content:center;pointer-events:none}
+.entry-route{bottom:calc(100% + 2px);align-items:center}
+.exit-route{top:calc(100% + 2px);align-items:center}
+.route-marker svg{width:58%;height:100%;max-width:22px;max-height:22px;filter:drop-shadow(0 2px 2px #170c05);overflow:visible}
 .route-marker path{fill:#ffda60;stroke:#794315;stroke-width:2;stroke-linejoin:round}
-.entry-route svg{margin-top:1px;opacity:.95}
-.exit-route svg{margin-bottom:1px;filter:drop-shadow(0 0 5px #ffb12f) drop-shadow(0 2px 2px #170c05)}
+.entry-route svg{margin-top:0;opacity:.95}
+.exit-route svg{margin-bottom:0;filter:drop-shadow(0 0 5px #ffb12f) drop-shadow(0 2px 2px #170c05)}
 .exit-route path{fill:#ffe479;stroke:#723114}
 .cell.entry{box-shadow:inset 0 0 0 1px #c89b4f,inset 0 12px 14px #d3a43522}
 .cell.exit{background:linear-gradient(#5a2c19,#3c2014);box-shadow:inset 0 0 0 2px #e6b653,inset 0 -15px 18px #d58c293d}

@@ -53,7 +53,7 @@ function render(){
       <div class="journey-strip"><div class="crown-tally" aria-label="Доставлено корон: ${crowns} из 3">${icon(CROWN)}<b>${crowns}<span> / ${TARGET_CROWNS}</span></b></div><span class="status-divider" aria-hidden="true"></span><div class="grecha-tally">${icon(0)}<span>Греча <b>${game?.grecha??0}</b></span></div></div>
       <div class="board-area"><div class="board-frame">
         <img class="board-art" src="/art/kingdom-frame.png?v=compact-20261104" alt="" draggable="false">
-        <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div><div class="route-layer" aria-hidden="true">${routeMarkers()}</div></div>
+        <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div></div><div class="route-layer" aria-hidden="true">${routeMarkers()}</div>
       </div></div>
     </section>
     ${!started?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>Верни короны</h2><p>Освобождай место под верхними стрелками.<br>Опусти три короны за ${MOVES} ходов.</p><div class="entry-price">Вход <b>100 золота</b><span>Каждая корона принесёт 50 золота</span></div><button class="primary" data-action="start">Начать партию</button></div></div>`:''}
