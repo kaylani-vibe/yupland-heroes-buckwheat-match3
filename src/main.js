@@ -53,7 +53,7 @@ function render(){
     <div class="ambience" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
     <header class="masthead">
       <span class="lantern-halo left" aria-hidden="true"></span><span class="lantern-halo right" aria-hidden="true"></span>
-      <img class="canopy-art" src="/art/kingdom-header.png?v=compact-20261104" alt="" width="2172" height="724" draggable="false">
+      <img class="canopy-art" src="${import.meta.env.BASE_URL}art/kingdom-header.png?v=compact-20261104" alt="" width="2172" height="724" draggable="false">
       <h1>Корона гречневого<br>королевства</h1>
     </header>
     <section class="game-panel" aria-label="Игровая партия">
@@ -63,7 +63,7 @@ function render(){
       </div>
       <div class="journey-strip"><div class="crown-tally" aria-label="Доставлено корон: ${crowns} из 3">${icon(CROWN)}<b>${crowns}<span> / ${TARGET_CROWNS}</span></b></div><span class="status-divider" aria-hidden="true"></span><div class="grecha-tally">${icon(0)}<span>Греча <b>${game?.grecha??0}</b></span></div></div>
       <div class="board-area"><div class="board-frame">
-        <img class="board-art" src="/art/kingdom-frame.png?v=compact-20261104" alt="" draggable="false">
+        <img class="board-art" src="${import.meta.env.BASE_URL}art/kingdom-frame.png?v=compact-20261104" alt="" draggable="false">
         <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div></div><div class="route-layer" aria-hidden="true">${routeMarkers()}</div>
       </div></div>
     </section>
