@@ -37,6 +37,7 @@ for(const [left,right] of [[SPECIAL.RAY_H,SPECIAL.BURST],[SPECIAL.BURST,SPECIAL.
 for(const type of [SPECIAL.RAY_H,SPECIAL.RAY_V,SPECIAL.BURST])for(const reverse of [false,true]){
   test(`rainbow converts and immediately detonates color 0 as ${type}, reverse ${reverse}`,()=>{
     const g=createGame();g.board[a.row][a.col]=value(reverse?type:SPECIAL.RAINBOW,0);g.board[b.row][b.col]=value(reverse?SPECIAL.RAINBOW:type,0);
+    g.board[6][3]=CROWN;
     const expected=g.board.flat().filter(v=>colorOf(v)===0).length;
     assert.ok(playSwap(g,a,b));
     const step=g.lastAnimation.steps[0],removed=new Set(step.cleared.map(([r,c])=>key(r,c)));

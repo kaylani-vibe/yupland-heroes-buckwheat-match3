@@ -1,6 +1,7 @@
 import './style.css';
 import './kingdom.css';
-import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,CROWN_START,STONE,HOLE,EXIT,SPECIAL,colorOf,specialType,createGame,playSwap,payout} from './engine.mjs';
+import './screen.css';
+import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,STONE,HOLE,ENTRY_COLS,EXITS,SPECIAL,colorOf,specialType,createGame,playSwap,payout} from './engine.mjs';
 
 // Keyed pieces and the remove/fall/refill sequence adapt PlayBoard.tsx from
 // the developer-supplied YupMatch archive (02 Nov 2026).
@@ -24,12 +25,15 @@ const icon=kind=>`<span class="icon icon-${kind}" aria-hidden="true"></span>`;
 const specialGlyph={1:'↔',2:'↕',3:'✸',4:'★'};
 const pieceInner=p=>{const type=specialType(p.value),kind=type?colorOf(p.value):p.value;return `${type===SPECIAL.RAINBOW?'<span class="rainbow-art" aria-hidden="true">✦</span>':icon(kind)}${type?`<b class="power-mark">${specialGlyph[type]}</b>`:''}`;};
 const pieceMarkup=p=>`<span class="piece ${p.value===CROWN?'royal':''} ${specialType(p.value)?'powered':''}" data-id="${p.id}" style="transform:translate(${p.col*100}%,${p.row*100}%)">${pieceInner(p)}</span>`;
+const routeArrow='<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M14 3h12v16h10L20 37 4 19h10z"/></svg>';
+const routeMarkers=()=>ENTRY_COLS.map(col=>`<span class="route-marker entry-route" style="--col:${col}">${routeArrow}</span><span class="route-marker exit-route" style="--col:${col}">${routeArrow}</span>`).join('');
 function cellMarkup(value,row,col){
   if(value===HOLE)return '<span class="cell hole" aria-hidden="true"></span>';
   if(value===STONE)return '<span class="cell stone" aria-label="Неподвижный камень"><span class="rock"></span></span>';
   const chosen=selected?.row===row&&selected?.col===col;
   const type=specialType(value),label=type===SPECIAL.RAINBOW?'Радуга':type?`${names[colorOf(value)]}, ${type===SPECIAL.BURST?'Вспышка':'Луч'}`:names[value];
-  return `<button class="cell gem ${chosen?'selected':''} ${row===EXIT.row&&col===EXIT.col?'exit':''}" data-row="${row}" data-col="${col}" aria-label="${label||'пусто'}, ряд ${row+1}, столбец ${col+1}" aria-pressed="${chosen}">${row===EXIT.row&&col===EXIT.col?'<span class="exit-marker" aria-hidden="true">↓</span>':''}</button>`;
+  const entry=row===0&&ENTRY_COLS.includes(col),exit=EXITS.some(cell=>cell.row===row&&cell.col===col);
+  return `<button class="cell gem ${chosen?'selected':''} ${entry?'entry':''} ${exit?'exit':''}" data-row="${row}" data-col="${col}" aria-label="${label||'пусто'}, ряд ${row+1}, столбец ${col+1}${entry?', вход короны':''}${exit?', выход короны':''}" aria-pressed="${chosen}"></button>`;
 }
 function render(){
   const started=!!game,finished=game?.finished,result=finished?payout(game):null,board=game?.board??previewBoard;
@@ -39,7 +43,6 @@ function render(){
     <header class="masthead">
       <span class="lantern-halo left" aria-hidden="true"></span><span class="lantern-halo right" aria-hidden="true"></span>
       <img class="canopy-art" src="/art/kingdom-header.png?v=compact-20261104" alt="" width="2172" height="724" draggable="false">
-      <span class="brand">Yupland Heroes</span>
       <h1>Корона гречневого<br>королевства</h1>
     </header>
     <section class="game-panel" aria-label="Игровая партия">
@@ -48,16 +51,12 @@ function render(){
         <div class="stat moves-stat"><span class="stat-label">Ходы</span><strong class="moves-count">${started?game.moves:MOVES}</strong></div>
       </div>
       <div class="journey-strip"><div class="crown-tally" aria-label="Доставлено корон: ${crowns} из 3">${icon(CROWN)}<b>${crowns}<span> / ${TARGET_CROWNS}</span></b></div><span class="status-divider" aria-hidden="true"></span><div class="grecha-tally">${icon(0)}<span>Греча <b>${game?.grecha??0}</b></span></div></div>
-      <div class="board-frame">
+      <div class="board-area"><div class="board-frame">
         <img class="board-art" src="/art/kingdom-frame.png?v=compact-20261104" alt="" draggable="false">
-        <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div></div>
-      </div>
-      <div class="exit-scene"><span class="exit-trail" aria-hidden="true"></span><img src="/art/exit-portal.png" alt="" class="exit-portal" draggable="false"><span class="exit-label">Выход короны</span></div>
-      <p class="hint" role="status">${!started?'Собирай ряды, освобождай путь коронам':finished?'Партия завершена':game.lastGain?`+${game.lastGain} гречи${game.chain>1?` · каскад ×${game.chain}`:''}`:'Соединяй одинаковые фишки и смешивай бонусы'}</p>
-      <div class="rule"><span>Вход <b>100 золота</b></span><span>За корону <b>50 золота</b></span></div>
+        <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div><div class="route-layer" aria-hidden="true">${routeMarkers()}</div></div>
+      </div></div>
     </section>
-    <p class="footnote">Три короны: 150 золота · две: 100 · одна: 50</p>
-    ${!started?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>Верни короны</h2><p>Освободи путь трём коронам<br>за ${MOVES} ходов.</p><div class="entry-price">Вход <b>100 золота</b><span>Каждая корона принесёт 50 золота</span></div><button class="primary" data-action="start">Начать партию</button></div></div>`:''}
+    ${!started?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>Верни короны</h2><p>Освобождай место под верхними стрелками.<br>Опусти три короны за ${MOVES} ходов.</p><div class="entry-price">Вход <b>100 золота</b><span>Каждая корона принесёт 50 золота</span></div><button class="primary" data-action="start">Начать партию</button></div></div>`:''}
     ${finished?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>${game.crowns===3?'Все короны<br>доставлены!':'Ходы закончились'}</h2><p>Короны: <b>${game.crowns} / 3</b><br>Возврат: <b>${result.returned} золота</b><br>Итог: <b class="${result.net>=0?'positive':'negative'}">${result.net>0?'+':''}${result.net} золота</b><br>Греча: <b>${result.grecha}</b></p><button class="primary" data-action="restart">Играть ещё</button></div></div>`:''}
   </main>`;
 }
@@ -118,15 +117,10 @@ async function performSwap(a,b){
     for(const [row,col] of step.cleared){const p=pieceAt(row,col);if(p)removePiece(p);}
     await collapseTo(step.afterGravity);
     if(step.delivered){
-      const crown=pieceAt(EXIT.row,EXIT.col);
+      const crown=pieceAt(step.deliveredAt.row,step.deliveredAt.col);
       if(crown){nodeFor(crown)?.classList.add('delivered');effectLayer()?.insertAdjacentHTML('beforeend','<span class="crown-pop">+50 золота</span>');await wait(400);removePiece(crown);}
       await collapseTo(step.afterDelivery);
     }
-  }
-  if(game.lastAnimation.spawned){
-    const {row,col}=CROWN_START,replaced=pieceAt(row,col);if(replaced)removePiece(replaced);
-    const crown={id:nextId++,row:-1,col,value:CROWN};pieces.push(crown);addPiece(crown);
-    await frame();crown.row=row;updatePositions();await wait(420);
   }
   if(game.lastAnimation.shuffled){layer()?.classList.add('shuffling');await wait(230);pieces=makePieces(game.board);layer().innerHTML=pieces.map(pieceMarkup).join('');layer()?.classList.remove('shuffling');await wait(230);}
   busy=false;render();

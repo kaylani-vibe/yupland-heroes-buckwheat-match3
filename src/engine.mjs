@@ -16,8 +16,10 @@ export const SPECIAL = { NONE:0, RAY_H:1, RAY_V:2, BURST:3, RAINBOW:4 };
 export const specialType = value => value>=15 ? Math.floor((value-10)/GEM_COUNT) : 0;
 export const colorOf = value => value>=15 && specialType(value)!==SPECIAL.RAINBOW ? (value-10)%GEM_COUNT : value>=0 && value<GEM_COUNT ? value : -1;
 const specialValue = (type,color=0) => 10+type*GEM_COUNT+color;
-export const EXIT = { row: 9, col: 3 };
-export const CROWN_START = { row: 6, col: 3 };
+export const ENTRY_COLS = [3,4];
+export const EXITS = ENTRY_COLS.map(col=>({row:ROWS-1,col}));
+export const EXIT = EXITS[0];
+export const CROWN_START = { row: 0, col: ENTRY_COLS[0] };
 
 const HOLES = [[0,0],[0,7],[1,0],[8,7],[9,0],[9,7]];
 const STONES = [[3,1],[4,1],[5,6],[6,6]];
@@ -100,7 +102,7 @@ function fillWithoutMatches(board,random) {
   }
 }
 
-export function makeBoard(random=seededRandom(20261103),crown=true) {
+export function makeBoard(random=seededRandom(20261103),crown=false) {
   for (let attempt=0;attempt<1000;attempt++) {
     const board=makeMask().map(row=>row.map(value=>value ?? EMPTY));
     if (crown) board[CROWN_START.row][CROWN_START.col]=CROWN;
@@ -110,7 +112,8 @@ export function makeBoard(random=seededRandom(20261103),crown=true) {
   throw new Error('Не удалось создать поле с доступным ходом');
 }
 
-export function gravity(board,random) {
+export function gravity(board,random,crownColumn=null) {
+  let spawned=null;
   for (let col=0;col<COLS;col++) {
     let bottom=ROWS-1;
     while (bottom>=0) {
@@ -121,15 +124,19 @@ export function gravity(board,random) {
       for (let row=top;row<=bottom;row++) if (board[row][col]!==EMPTY) pieces.push(board[row][col]);
       let cursor=bottom;
       for (let i=pieces.length-1;i>=0;i--) board[cursor--][col]=pieces[i];
-      while (cursor>=top) board[cursor--][col]=Math.floor(random()*GEM_COUNT);
+      while (cursor>=top){
+        if(!spawned&&col===crownColumn&&top===0){board[cursor][col]=CROWN;spawned={row:cursor,col};cursor--;}
+        else board[cursor--][col]=Math.floor(random()*GEM_COUNT);
+      }
       bottom=top-1;
     }
   }
+  return spawned;
 }
 
-export function createGame(seed=5) {
+export function createGame(seed=2) {
   const random=seededRandom(seed);
-  return {board:makeBoard(random),random,moves:MOVES,crowns:0,grecha:0,chain:0,finished:false,lastGain:0,lastAnimation:null};
+  return {board:makeBoard(random),random,moves:MOVES,crowns:0,grecha:0,chain:0,finished:false,lastGain:0,lastAnimation:null,lastEntryCol:ENTRY_COLS[1]};
 }
 
 const snapshot = board => board.map(row=>[...row]);
@@ -196,21 +203,31 @@ function resolve(game, animation, preferred, firstClear) {
       game.board[row][col]=EMPTY;
     }
     for(const {cell,type,color} of created.values())game.board[cell.row][cell.col]=specialValue(type,color);
-    gravity(game.board,game.random);
+    // Crown supply uses a real refill vacancy connected to a marked top entry.
+    // A delivery never spawns its successor by itself: a later clear is required.
+    let crownColumn=null;
+    if(game.crowns<TARGET_CROWNS&&!game.board.some(row=>row.includes(CROWN))){
+      const eligible=ENTRY_COLS.filter(col=>{
+        for(let row=0;row<ROWS;row++){
+          if(game.board[row][col]===STONE||game.board[row][col]===HOLE)return false;
+          if(game.board[row][col]===EMPTY)return true;
+        }
+        return false;
+      });
+      crownColumn=eligible.find(col=>col!==game.lastEntryCol)??eligible[0]??null;
+    }
+    const spawned=gravity(game.board,game.random,crownColumn);
+    if(spawned)game.lastEntryCol=spawned.col;
     const afterGravity=snapshot(game.board);
     let delivered=false;
-    if (game.board[EXIT.row][EXIT.col]===CROWN) {
+    const deliveredAt=EXITS.find(cell=>game.board[cell.row][cell.col]===CROWN)??null;
+    if (deliveredAt) {
       delivered=true;
       game.crowns++;
-      game.board[EXIT.row][EXIT.col]=EMPTY;
+      game.board[deliveredAt.row][deliveredAt.col]=EMPTY;
       gravity(game.board,game.random);
     }
-    animation.steps.push({transformed:chain===1?animation.transformed:[],effects:chain===1?animation.effects:[],consumed:chain===1?animation.consumed:[],cleared:[...cells].map(key=>key.split(',').map(Number)),created:[...created.values()].map(({cell,type,color})=>({row:cell.row,col:cell.col,value:specialValue(type,color)})),afterGravity,afterDelivery:snapshot(game.board),delivered,wave:chain,gained:waveGain,runs:runs.map(run=>({length:run.length,cells:run.cells}))});
-  }
-  // One new crown per completed cascade; no surprise multiple deliveries in a single swap.
-  if (game.crowns<TARGET_CROWNS && !game.board.some(row=>row.includes(CROWN))) {
-    game.board[CROWN_START.row][CROWN_START.col]=CROWN;
-    animation.spawned=true;
+    animation.steps.push({transformed:chain===1?animation.transformed:[],effects:chain===1?animation.effects:[],consumed:chain===1?animation.consumed:[],cleared:[...cells].map(key=>key.split(',').map(Number)),created:[...created.values()].map(({cell,type,color})=>({row:cell.row,col:cell.col,value:specialValue(type,color)})),spawned,afterGravity,afterDelivery:snapshot(game.board),delivered,deliveredAt,wave:chain,gained:waveGain,runs:runs.map(run=>({length:run.length,cells:run.cells}))});
   }
   game.grecha+=gain;
   game.lastGain=gain;
