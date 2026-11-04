@@ -60,11 +60,11 @@ test('a full random party never moves stones and ends within 25 swaps',()=>{
 
 test('the fixed opening has a proven path to all three crowns within 25 moves',()=>{
   const game=createGame();
-  const path=[[8,4,9,4],[8,2,9,2],[7,0,8,0],[5,2,6,2],[8,5,9,5],[7,2,7,3],[8,4,9,4],[3,7,4,7],[3,2,4,2],[2,2,3,2],[4,4,5,4],[4,4,5,4],[2,6,3,6],[6,1,7,1],[4,4,5,4],[8,4,9,4],[9,3,9,4],[8,3,8,4]];
+  const path=[[3,7,4,7],[8,4,9,4],[6,3,7,3],[8,4,9,4],[7,3,8,3],[2,4,3,4],[9,1,9,2],[7,0,7,1]];
   for (const [r1,c1,r2,c2] of path) assert.ok(playSwap(game,{row:r1,col:c1},{row:r2,col:c2}));
   assert.equal(game.crowns,3);
   assert.equal(game.finished,true);
-  assert.equal(game.moves,7);
+  assert.equal(game.moves,17);
   assert.equal(payout(game).net,50);
 });
 

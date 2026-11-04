@@ -16,7 +16,7 @@ export const SPECIAL = { NONE:0, RAY_H:1, RAY_V:2, BURST:3, RAINBOW:4 };
 export const specialType = value => value>=15 ? Math.floor((value-10)/GEM_COUNT) : 0;
 export const colorOf = value => value>=15 && specialType(value)!==SPECIAL.RAINBOW ? (value-10)%GEM_COUNT : value>=0 && value<GEM_COUNT ? value : -1;
 const specialValue = (type,color=0) => 10+type*GEM_COUNT+color;
-export const ENTRY_COLS = [3,4];
+export const ENTRY_COLS = [1,6];
 export const EXITS = ENTRY_COLS.map(col=>({row:ROWS-1,col}));
 export const EXIT = EXITS[0];
 export const CROWN_START = { row: 0, col: ENTRY_COLS[0] };
@@ -112,26 +112,47 @@ export function makeBoard(random=seededRandom(20261103),crown=false) {
   throw new Error('Не удалось создать поле с доступным ходом');
 }
 
-export function gravity(board,random,crownColumn=null) {
-  let spawned=null;
-  for (let col=0;col<COLS;col++) {
-    let bottom=ROWS-1;
-    while (bottom>=0) {
-      if (board[bottom][col]===STONE || board[bottom][col]===HOLE) { bottom--; continue; }
-      let top=bottom;
-      while (top>0 && board[top-1][col]!==STONE && board[top-1][col]!==HOLE) top--;
-      const pieces=[];
-      for (let row=top;row<=bottom;row++) if (board[row][col]!==EMPTY) pieces.push(board[row][col]);
-      let cursor=bottom;
-      for (let i=pieces.length-1;i>=0;i--) board[cursor--][col]=pieces[i];
-      while (cursor>=top){
-        if(!spawned&&col===crownColumn&&top===0){board[cursor][col]=CROWN;spawned={row:cursor,col};cursor--;}
-        else board[cursor--][col]=Math.floor(random()*GEM_COUNT);
-      }
-      bottom=top-1;
+// Every token keeps its actual route so the renderer can animate diagonal slides
+// around obstacles instead of reconstructing motion from final column values.
+export function gravity(board,random,crownColumn=null,paths=[]) {
+  const tokens=board.map((line,row)=>line.map((value,col)=>value>=0?{value,from:{row,col},path:[{row,col}]}:null));
+  const all=tokens.flat().filter(Boolean);
+  let crown=null;
+  const move=(row,col,toRow,toCol)=>{
+    const token=tokens[row][col];
+    tokens[toRow][toCol]=token;tokens[row][col]=null;
+    board[toRow][toCol]=board[row][col];board[row][col]=EMPTY;
+    token.path.push({row:toRow,col:toCol});
+  };
+  for(let round=0;round<ROWS*COLS*ROWS;round++){
+    let moved=false;
+    // Straight falling always has priority over rolling sideways.
+    for(let row=ROWS-2;row>=0;row--)for(let col=0;col<COLS;col++){
+      if(tokens[row][col]&&board[row+1][col]===EMPTY){move(row,col,row+1,col);moved=true;}
     }
+    if(moved)continue;
+    // Only feed diagonal cavities whose vertical supply is cut off by a block.
+    // A vacancy connected to the sky is filled from above instead.
+    for(let row=ROWS-1;row>0;row--)for(let col=0;col<COLS;col++){
+      if(board[row][col]!==EMPTY)continue;
+      let above=row-1;while(above>=0&&board[above][col]===EMPTY)above--;
+      if(above<0||board[above][col]>=0)continue;
+      const candidates=col<COLS/2?[col+1,col-1]:[col-1,col+1];
+      const source=candidates.find(c=>c>=0&&c<COLS&&tokens[row-1][c]&&board[row][c]!==EMPTY);
+      if(source!==undefined){move(row-1,source,row,col);moved=true;}
+    }
+    if(moved)continue;
+    // New pieces enter only at the real top of the board, never below a stone.
+    for(let col=0;col<COLS;col++)if(board[0][col]===EMPTY){
+      const value=!crown&&col===crownColumn?CROWN:Math.floor(random()*GEM_COUNT);
+      const token={value,from:null,path:[{row:-1,col},{row:0,col}]};
+      if(value===CROWN)crown=token;
+      all.push(token);tokens[0][col]=token;board[0][col]=value;moved=true;
+    }
+    if(!moved)break;
   }
-  return spawned;
+  for(const token of all)if(token.path.length>1)paths.push(token);
+  return crown?{...crown.path.at(-1),entryCol:crownColumn}:null;
 }
 
 export function createGame(seed=2) {
@@ -216,18 +237,20 @@ function resolve(game, animation, preferred, firstClear) {
       });
       crownColumn=eligible.find(col=>col!==game.lastEntryCol)??eligible[0]??null;
     }
-    const spawned=gravity(game.board,game.random,crownColumn);
-    if(spawned)game.lastEntryCol=spawned.col;
+    const gravityPaths=[];
+    const spawned=gravity(game.board,game.random,crownColumn,gravityPaths);
+    if(spawned)game.lastEntryCol=spawned.entryCol;
     const afterGravity=snapshot(game.board);
     let delivered=false;
+    const deliveryPaths=[];
     const deliveredAt=EXITS.find(cell=>game.board[cell.row][cell.col]===CROWN)??null;
     if (deliveredAt) {
       delivered=true;
       game.crowns++;
       game.board[deliveredAt.row][deliveredAt.col]=EMPTY;
-      gravity(game.board,game.random);
+      gravity(game.board,game.random,null,deliveryPaths);
     }
-    animation.steps.push({transformed:chain===1?animation.transformed:[],effects:chain===1?animation.effects:[],consumed:chain===1?animation.consumed:[],cleared:[...cells].map(key=>key.split(',').map(Number)),created:[...created.values()].map(({cell,type,color})=>({row:cell.row,col:cell.col,value:specialValue(type,color)})),spawned,afterGravity,afterDelivery:snapshot(game.board),delivered,deliveredAt,wave:chain,gained:waveGain,runs:runs.map(run=>({length:run.length,cells:run.cells}))});
+    animation.steps.push({transformed:chain===1?animation.transformed:[],effects:chain===1?animation.effects:[],consumed:chain===1?animation.consumed:[],cleared:[...cells].map(key=>key.split(',').map(Number)),created:[...created.values()].map(({cell,type,color})=>({row:cell.row,col:cell.col,value:specialValue(type,color)})),spawned,gravityPaths,deliveryPaths,afterGravity,afterDelivery:snapshot(game.board),delivered,deliveredAt,wave:chain,gained:waveGain,runs:runs.map(run=>({length:run.length,cells:run.cells}))});
   }
   game.grecha+=gain;
   game.lastGain=gain;

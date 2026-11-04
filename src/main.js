@@ -28,7 +28,7 @@ const pieceMarkup=p=>`<span class="piece ${p.value===CROWN?'royal':''} ${special
 const routeArrow='<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M14 3h12v16h10L20 37 4 19h10z"/></svg>';
 const routeMarkers=()=>ENTRY_COLS.map(col=>`<span class="route-marker entry-route" style="--col:${col}">${routeArrow}</span><span class="route-marker exit-route" style="--col:${col}">${routeArrow}</span>`).join('');
 function cellMarkup(value,row,col){
-  if(value===HOLE)return '<span class="cell hole edge-stone" aria-label="Камень на границе поля"><span class="rock" aria-hidden="true"></span></span>';
+  if(value===HOLE)return '<span class="cell hole edge-chest" aria-label="Деревянный сундук"><span class="chest" aria-hidden="true"></span></span>';
   if(value===STONE)return '<span class="cell stone" aria-label="Неподвижный камень"><span class="rock"></span></span>';
   const chosen=selected?.row===row&&selected?.col===col;
   const type=specialType(value),label=type===SPECIAL.RAINBOW?'Радуга':type?`${names[colorOf(value)]}, ${type===SPECIAL.BURST?'Вспышка':'Луч'}`:names[value];
@@ -76,27 +76,35 @@ function flash(cells,wave,runs,effects=[],consumed=[]){
   if(wave>1)fx.insertAdjacentHTML('beforeend',`<span class="combo-pop">Каскад ×${wave}</span>`);
   setTimeout(()=>{if(fx.isConnected)fx.innerHTML='';},600);
 }
-async function collapseTo(target){
-  const entrants=[];
-  for(let col=0;col<COLS;col++){
-    let bottom=ROWS-1;
-    while(bottom>=0){
-      if(target[bottom][col]===HOLE||target[bottom][col]===STONE){bottom--;continue;}
-      let top=bottom;while(top>0&&target[top-1][col]!==HOLE&&target[top-1][col]!==STONE)top--;
-      const kept=pieces.filter(p=>!p.entering&&p.col===col&&p.row>=top&&p.row<=bottom).sort((a,b)=>b.row-a.row);
-      const rows=Array.from({length:bottom-top+1},(_,k)=>bottom-k);
-      kept.forEach((p,k)=>{p.row=rows[k];});
-      for(let k=kept.length;k<rows.length;k++){
-        const row=rows[k],p={id:nextId++,row:top-1-(k-kept.length),col,value:target[row][col],entering:true};
-        pieces.push(p);addPiece(p);entrants.push([p,row]);
-      }
-      bottom=top-1;
+async function collapseTo(paths){
+  const moving=paths.map(route=>{
+    let p=route.from?pieceAt(route.from.row,route.from.col):null;
+    if(!p){p={id:nextId++,...route.path[0],value:route.value};pieces.push(p);addPiece(p);}
+    // Keep each bend around a block, merge uninterrupted vertical travel.
+    const waypoints=[route.path[0]];
+    for(let i=1;i<route.path.length;i++){
+      const prev=route.path[i-1],here=route.path[i],next=route.path[i+1];
+      if(!next||prev.col!==here.col||here.col!==next.col)waypoints.push(here);
     }
-  }
+    return {p,waypoints};
+  });
   await frame();
-  for(const [p,row] of entrants){p.row=row;p.entering=false;}
-  updatePositions();await wait(390);
+  const stages=Math.max(0,...moving.map(m=>m.waypoints.length-1));
+  for(let i=1;i<=stages;i++){
+    let duration=160;
+    for(const {p,waypoints} of moving)if(waypoints[i]){
+      const next=waypoints[i];
+      duration=Math.max(duration,Math.min(390,140+Math.abs(p.row-next.row)*35));
+    }
+    for(const {p,waypoints} of moving)if(waypoints[i]){
+      const el=nodeFor(p);if(el)el.style.transitionDuration=`${duration}ms`;
+      p.row=waypoints[i].row;p.col=waypoints[i].col;
+    }
+    updatePositions();await wait(duration);
+  }
+  for(const {p} of moving){const el=nodeFor(p);if(el)el.style.removeProperty('transition-duration');}
 }
+
 async function animateSwap(a,b){
   const p=pieceAt(a.row,a.col),q=pieceAt(b.row,b.col);if(!p||!q)return;
   [p.row,q.row]=[q.row,p.row];[p.col,q.col]=[q.col,p.col];updatePositions();await wait(190);
@@ -115,11 +123,11 @@ async function performSwap(a,b){
     for(const [row,col] of step.cleared)nodeFor(pieceAt(row,col))?.classList.add('dying');
     await wait(230);
     for(const [row,col] of step.cleared){const p=pieceAt(row,col);if(p)removePiece(p);}
-    await collapseTo(step.afterGravity);
+    await collapseTo(step.gravityPaths);
     if(step.delivered){
       const crown=pieceAt(step.deliveredAt.row,step.deliveredAt.col);
       if(crown){nodeFor(crown)?.classList.add('delivered');effectLayer()?.insertAdjacentHTML('beforeend','<span class="crown-pop">+50 золота</span>');await wait(400);removePiece(crown);}
-      await collapseTo(step.afterDelivery);
+      await collapseTo(step.deliveryPaths);
     }
   }
   if(game.lastAnimation.shuffled){layer()?.classList.add('shuffling');await wait(230);pieces=makePieces(game.board);layer().innerHTML=pieces.map(pieceMarkup).join('');layer()?.classList.remove('shuffling');await wait(230);}
