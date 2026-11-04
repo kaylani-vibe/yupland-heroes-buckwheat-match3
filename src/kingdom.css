@@ -68,3 +68,46 @@ body{overflow-x:clip;background:radial-gradient(ellipse at 50% 8%,#49301b88,tran
 @media(max-width:350px){.mission-row{grid-template-columns:minmax(0,1fr) 67px;gap:5px}.mission-plaque{padding-inline:3px}.mission-plaque>.icon{flex-basis:37px;width:37px;height:37px}.mission-plaque p{font-size:12px}.mission-eyebrow{font-size:7px}.masthead h1{font-size:20px}.crown-slot{width:24px;height:24px}.crown-slot .icon{width:21px;height:21px}.journey-strip{margin-inline:9px}.rule{gap:15px}}
 @media(prefers-reduced-motion:reduce){.lantern-halo,.ambience i{animation:none}}
 @media(min-width:600px){.masthead h1{font-size:28px;left:17%;right:17%;top:43%}.journey-strip{margin-bottom:28px}.exit-scene{height:111px}.exit-portal{width:140px;height:140px}.exit-label{top:101px}}
+
+/* Compact top approved 04 Nov 2026: title, mission + moves, one status strip. */
+.masthead{aspect-ratio:4.45;margin-bottom:3px}
+.canopy-art{object-fit:fill}
+.masthead h1{top:39%;left:18%;right:18%;font-size:clamp(18px,5.25vw,25px);line-height:1}
+.brand{top:16%;left:31%;right:31%;font-size:6px;letter-spacing:.15em;color:#ffdd93;text-shadow:0 1px #6d300c}
+.lantern-halo{top:30%;height:60%;width:22%;filter:blur(5px)}
+.mission-row{grid-template-columns:minmax(0,1fr) 69px;gap:5px;margin:3px 5px 0}
+.mission-plaque{min-height:51px;padding:4px 7px 4px 4px;gap:3px;border-radius:18px}
+.mission-plaque>.icon{flex-basis:35px;width:35px;height:35px}
+.mission-plaque p{font-size:clamp(12px,3.65vw,17px);line-height:1.08}
+.moves-stat{padding:3px 3px 4px;border-radius:18px}
+.moves-stat .stat-label{font-size:12px;line-height:1}
+.moves-stat strong{font-size:29px;line-height:.95;margin-top:1px}
+.journey-strip{gap:8px;margin:9px 7px 15px;padding:1px 13px;min-height:30px;border:1px solid #bc843a;border-radius:50px;background:linear-gradient(100deg,#302117,#171715 55%,#352418);box-shadow:inset 0 1px #ffe0a222}
+.crown-tally,.grecha-tally{gap:4px;min-height:25px;flex-shrink:0}
+.crown-tally>.icon{width:27px;height:27px}
+.crown-tally>b{font-size:16px;margin-left:1px}
+.crown-tally>b span{font-size:12px;color:#ecd1a0}
+.grecha-tally>.icon{width:26px;height:26px}
+.grecha-tally>span{font-size:12px;color:#dfc396;gap:6px}
+.grecha-tally b{font-size:17px;color:#ffe8af}
+.status-divider{height:1px;flex:1;margin:0 4px;background:linear-gradient(90deg,transparent,#d4a454,transparent);position:relative}
+.status-divider:after{content:'';position:absolute;width:5px;height:5px;left:50%;top:50%;transform:translate(-50%,-50%) rotate(45deg);background:#e2b66d;box-shadow:0 0 0 1px #765024}
+.board-art{top:-3%;height:108%}
+@media(min-width:600px){.masthead h1{font-size:25px;top:39%;left:18%;right:18%}.brand{font-size:8px}.mission-row{grid-template-columns:minmax(0,1fr) 85px;gap:6px}.mission-plaque{min-height:61px}.mission-plaque>.icon{width:44px;height:44px;flex-basis:44px}.mission-plaque p{font-size:18px}.moves-stat .stat-label{font-size:14px}.moves-stat strong{font-size:36px}.journey-strip{min-height:34px;margin-top:10px;margin-bottom:20px}.crown-tally>.icon{width:30px;height:30px}.crown-tally>b{font-size:18px}.grecha-tally>span{font-size:14px}.grecha-tally b{font-size:19px}}
+@media(max-width:350px){.mission-row{grid-template-columns:minmax(0,1fr) 63px;gap:4px}.mission-plaque{padding-inline:3px}.mission-plaque>.icon{width:31px;height:31px;flex-basis:31px}.mission-plaque p{font-size:12px}.journey-strip{margin-inline:7px;padding-inline:10px}.status-divider{margin-inline:2px}.grecha-tally>span{font-size:11px}.masthead h1{font-size:17px}}
+/* The transparent header keeps its natural artwork ratio; empty alpha is outside the visible band. */
+.canopy-art{top:-17%;height:145%}
+.brand{top:24%}
+.masthead h1{top:40%;left:20%;right:20%;font-size:clamp(16px,4.95vw,23.5px)}
+.journey-strip{margin-bottom:18px}
+.board-art{top:-7%;height:114%}
+@media(min-width:600px){.masthead h1{top:40%;left:20%;right:20%;font-size:23.5px}.brand{top:24%}.journey-strip{margin-bottom:25px}}
+@media(max-width:350px){.masthead h1{font-size:16px}}
+/* Further reduce the mission row height, per owner review 04 Nov 2026. */
+.mission-plaque{min-height:42px;padding:2px 6px 2px 4px}
+.mission-plaque>.icon{width:30px;height:30px;flex-basis:30px}
+.moves-stat{padding:1px 3px 2px}
+.moves-stat .stat-label{font-size:10px}
+.moves-stat strong{font-size:24px;margin-top:1px}
+@media(min-width:600px){.mission-plaque{min-height:46px;padding-block:2px}.mission-plaque>.icon{width:32px;height:32px;flex-basis:32px}.moves-stat .stat-label{font-size:11px}.moves-stat strong{font-size:27px}}
+@media(max-width:350px){.mission-plaque>.icon{width:28px;height:28px;flex-basis:28px}}
