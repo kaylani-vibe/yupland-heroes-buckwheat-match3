@@ -28,3 +28,6 @@
 .power-mark{position:absolute;right:0;bottom:0;width:48%;height:48%;display:grid;place-items:center;border:1px solid #ffe5a0;border-radius:50%;background:#6b2e16;color:#fff4c8;font:900 clamp(10px,2.4vw,20px) system-ui,sans-serif;text-shadow:0 1px #43180e;box-shadow:0 0 8px #ffdc73}
 .power-burst{position:absolute;left:calc(var(--x)*12.5%);top:calc(var(--y)*10%);width:12.5%;height:10%;border:3px solid #ffe178;border-radius:50%;box-shadow:0 0 22px #ffe083,inset 0 0 15px #fff;animation:impact-burst .55s ease-out forwards}
 .rainbow-art{width:75%;height:75%;display:grid;place-items:center;border:2px solid #fff8d2;border-radius:50%;background:conic-gradient(#f77,#fbd354,#70df8b,#77c9ff,#bd91ff,#f77);box-shadow:inset 0 0 9px #fff9,0 0 10px #ffe5b5;color:#fff;font:900 clamp(18px,5vw,35px) Georgia,serif;text-shadow:0 1px 4px #523273}
+.piece.transforming .icon{animation:bonus-transform .32s ease-out}
+@keyframes bonus-transform{0%{filter:brightness(1);scale:.8}55%{filter:brightness(2);scale:1.15}100%{filter:brightness(1);scale:1}}
+@media(prefers-reduced-motion:reduce){.piece.transforming .icon{animation-duration:.05s}}
