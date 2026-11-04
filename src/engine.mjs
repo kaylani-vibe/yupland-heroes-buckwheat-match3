@@ -70,6 +70,8 @@ export function canSwap(board,a,b) {
   const va=board[a.row][a.col],vb=board[b.row][b.col];
   if(va<0||vb<0||va===CROWN||vb===CROWN)return false;
   if(specialType(va)===SPECIAL.RAINBOW||specialType(vb)===SPECIAL.RAINBOW)return true;
+  const ta=specialType(va),tb=specialType(vb),ray=t=>t===SPECIAL.RAY_H||t===SPECIAL.RAY_V;
+  if((ray(ta)&&ray(tb))||(ray(ta)&&tb===SPECIAL.BURST)||(ray(tb)&&ta===SPECIAL.BURST))return true;
   swap(board,a,b);
   const valid = findRuns(board).some(run => run.cells.some(cell =>
     (cell.row===a.row && cell.col===a.col) || (cell.row===b.row && cell.col===b.col)));
@@ -154,10 +156,11 @@ function planSpecials(runs,preferred){
   return created;
 }
 
-function expandRemoval(board,initial,protect){
+function expandRemoval(board,initial,protect,consumed=new Set()){
   const cleared=new Set(initial),queue=[...initial];
   while(queue.length){
     const cell=fromId(queue.pop()),value=board[cell.row][cell.col],type=specialType(value);
+    if(consumed.has(cellId(cell)))continue;
     if(!type||type===SPECIAL.RAINBOW)continue;
     const affected=[];
     if(type===SPECIAL.RAY_H)for(let col=0;col<COLS;col++)affected.push({row:cell.row,col});
@@ -183,7 +186,7 @@ function resolve(game, animation, preferred, firstClear) {
     const created=forced?new Map():planSpecials(runs,chain===1?preferred:[]);
     const protect=new Set(created.keys());
     const initial=forced??new Set(runs.flatMap(run=>run.cells.map(cellId)));
-    const cells=expandRemoval(game.board,initial,protect);
+    const cells=expandRemoval(game.board,initial,protect,chain===1?new Set(animation.consumed):new Set());
     for(const id of protect)cells.delete(id);
     forced=null;
     const waveGain=cells.size + runs.reduce((n,run)=>n+(run.length>=5?5:run.length===4?2:0),0) + (chain>1?chain*2:0);
@@ -202,7 +205,7 @@ function resolve(game, animation, preferred, firstClear) {
       game.board[EXIT.row][EXIT.col]=EMPTY;
       gravity(game.board,game.random);
     }
-    animation.steps.push({cleared:[...cells].map(key=>key.split(',').map(Number)),created:[...created.values()].map(({cell,type,color})=>({row:cell.row,col:cell.col,value:specialValue(type,color)})),afterGravity,afterDelivery:snapshot(game.board),delivered,wave:chain,gained:waveGain,runs:runs.map(run=>({length:run.length,cells:run.cells}))});
+    animation.steps.push({transformed:chain===1?animation.transformed:[],effects:chain===1?animation.effects:[],consumed:chain===1?animation.consumed:[],cleared:[...cells].map(key=>key.split(',').map(Number)),created:[...created.values()].map(({cell,type,color})=>({row:cell.row,col:cell.col,value:specialValue(type,color)})),afterGravity,afterDelivery:snapshot(game.board),delivered,wave:chain,gained:waveGain,runs:runs.map(run=>({length:run.length,cells:run.cells}))});
   }
   // One new crown per completed cascade; no surprise multiple deliveries in a single swap.
   if (game.crowns<TARGET_CROWNS && !game.board.some(row=>row.includes(CROWN))) {
@@ -225,15 +228,35 @@ function resolve(game, animation, preferred, firstClear) {
 
 export function playSwap(game,a,b) {
   if (game.finished || !canSwap(game.board,a,b)) return false;
-  const animation={a:{...a},b:{...b},steps:[],spawned:false,shuffled:false,final:null};
+  const animation={a:{...a},b:{...b},steps:[],spawned:false,shuffled:false,final:null,transformed:[],effects:[],consumed:[]};
   swap(game.board,a,b);
   const va=game.board[a.row][a.col],vb=game.board[b.row][b.col];
   let firstClear=null;
+  const ta=specialType(va),tb=specialType(vb),ray=t=>t===SPECIAL.RAY_H||t===SPECIAL.RAY_V;
+  const add=(set,row,col)=>{const cell={row,col};if(inside(cell)&&game.board[row][col]>=0&&game.board[row][col]!==CROWN)set.add(cellId(cell));};
   if(specialType(va)===SPECIAL.RAINBOW||specialType(vb)===SPECIAL.RAINBOW){
     const color=specialType(va)===SPECIAL.RAINBOW?colorOf(vb):colorOf(va);
     firstClear=new Set([cellId(specialType(va)===SPECIAL.RAINBOW?a:b)]);
     if(color<0){for(let row=0;row<ROWS;row++)for(let col=0;col<COLS;col++)if(game.board[row][col]>=0&&game.board[row][col]!==CROWN)firstClear.add(`${row},${col}`);}
-    else for(let row=0;row<ROWS;row++)for(let col=0;col<COLS;col++)if(colorOf(game.board[row][col])===color)firstClear.add(`${row},${col}`);
+    else {
+      const partnerType=ta===SPECIAL.RAINBOW?tb:ta;
+      for(let row=0;row<ROWS;row++)for(let col=0;col<COLS;col++)if(colorOf(game.board[row][col])===color){
+        if(ray(partnerType)||partnerType===SPECIAL.BURST){
+          const value=specialValue(partnerType,color);game.board[row][col]=value;
+          animation.transformed.push({row,col,value});
+        }
+        firstClear.add(`${row},${col}`);
+      }
+    }
+  } else if((ray(ta)&&ray(tb))||(ray(ta)&&tb===SPECIAL.BURST)||(ray(tb)&&ta===SPECIAL.BURST)){
+    firstClear=new Set([cellId(a),cellId(b)]);
+    animation.consumed=[cellId(a),cellId(b)];
+    const radius=ray(ta)&&ray(tb)?0:1;
+    for(let offset=-radius;offset<=radius;offset++){
+      const row=b.row+offset,col=b.col+offset;
+      if(row>=0&&row<ROWS){for(let x=0;x<COLS;x++)add(firstClear,row,x);animation.effects.push({type:'h',row,col:0});}
+      if(col>=0&&col<COLS){for(let y=0;y<ROWS;y++)add(firstClear,y,col);animation.effects.push({type:'v',row:0,col});}
+    }
   }
   game.moves--;
   resolve(game,animation,[a,b],firstClear);
