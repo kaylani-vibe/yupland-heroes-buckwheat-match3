@@ -2,7 +2,7 @@
     <section class="green-start" role="dialog" aria-modal="true" aria-labelledby="start-title">
       <div class="start-content">
         <h2 id="start-title">Верни короны</h2>
-        <img class="start-divider" src="./art/start-divider.png" alt="">
+        <img class="start-divider" src="./art/start-divider.webp" alt="">
         <p class="start-goal">Опусти 3 короны за 30 ходов</p>
         <button class="start-secondary wallet-status" data-action="wallet">Подключить кошелёк</button>
         ${ve?`<p class="wallet-notice" role="status">Подключение кошелька сейчас недоступно</p>`:``}
@@ -25,7 +25,7 @@
     <section class="green-start green-exit" role="alertdialog" aria-modal="true" aria-labelledby="exit-title" aria-describedby="exit-message">
       <div class="start-content exit-content">
         <h2 id="exit-title">Выйти из игры?</h2>
-        <img class="start-divider" src="./art/start-divider.png" alt="">
+        <img class="start-divider" src="./art/start-divider.webp" alt="">
         <p id="exit-message">Прогресс текущей партии будет потерян. Продолжить её позже не получится.</p>
         <p class="exit-kept">${R===`en`?`Collected crowns will be paid out in your entry currency.`:`За полученные короны начислится выплата в валюте входа.`}</p>
         <button class="primary start-play" data-action="cancel-exit">Продолжить игру</button>
@@ -49,7 +49,7 @@
     <section class="green-start green-result ${e?`result-won`:``}" role="dialog" aria-modal="true" aria-labelledby="result-title">
       <div class="start-content result-content">
         <h2 id="result-title">${e?`Все короны<br>спасены!`:R===`en`?`Out of<br>moves`:`Ходы<br>закончились`}</h2>
-        <img class="start-divider" src="./art/start-divider.png" alt="">
+        <img class="start-divider" src="./art/start-divider.webp" alt="">
         <div class="result-crowns" aria-hidden="true">${n.map(e=>`<div class="result-crown ${e?`crown-earned`:`crown-missing`}">${Y(5)}</div>`).join(``)}</div>
         <p class="result-earned">${t?`${t===1?`Получена`:`Получено`} ${t} ${z(t)}`:`Короны не получены`}</p>
         ${xe(k)}
@@ -65,7 +65,7 @@
     <section class="green-start green-bag" role="dialog" aria-modal="true" aria-labelledby="bag-title">
       <div class="start-content bag-content">
         <h2 id="bag-title">Рюкзак</h2>
-        <img class="start-divider" src="./art/start-divider.png" alt="">
+        <img class="start-divider" src="./art/start-divider.webp" alt="">
         <div class="bag-item" aria-label="${e} ${z(e)}">
           ${Y(5)}<span class="bag-quantity" aria-hidden="true">×${e}</span>
         </div>
@@ -77,7 +77,7 @@
     <section class="green-start green-rating" role="dialog" aria-modal="true" aria-labelledby="rating-title">
       <div class="start-content rating-content">
         <h2 id="rating-title">Рейтинг</h2>
-        <img class="start-divider" src="./art/start-divider.png" alt="">
+        <img class="start-divider" src="./art/start-divider.webp" alt="">
         <div class="rating-metrics" role="group" aria-label="Показатель рейтинга">
           <button data-action="rating-grecha" aria-pressed="${V===`grecha`}">${Y(0)}Греча</button>
           <button data-action="rating-crowns" aria-pressed="${V===`crowns`}">${Y(5)}Короны</button>
@@ -102,7 +102,7 @@
           <text class="title-line-two"><textPath href="#title-bottom" startOffset="50%" text-anchor="middle">${t[R][1]}</textPath></text>
         </svg>
       </h1>
-      <img class="title-flower" src="./art/start-divider.png" alt="">
+      <img class="title-flower" src="./art/start-divider.webp" alt="">
     </header>
     <section class="game-panel" aria-label="Игровая партия" ${!e||n||V||F?`inert`:``}>
       <div class="mission-row">
@@ -111,7 +111,7 @@
       </div>
       <div class="journey-strip"><div class="crown-tally" aria-label="Доставлено корон: ${a} из 3">${Y(5)}<b>${a}<span> / 3</span></b></div>${e&&!n?`<button class="journey-rating" data-action="rating" aria-label="Открыть рейтинг" title="Рейтинг"><span class="start-action-icon start-action-rating" aria-hidden="true"></span></button>`:`<span class="status-divider" aria-hidden="true"></span>`}<div class="grecha-tally">${Y(0)}<span>Греча <b>${k?.grecha??0}</b></span></div></div>
       <div class="board-area"><div class="board-frame">
-        <img class="board-art" src="./art/kingdom-frame.png?v=compact-20261104" alt="" draggable="false">
+        <img class="board-art" src="./art/kingdom-frame.webp?v=compact-20261104" alt="" draggable="false">
         <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${r.map((e,t)=>e.map((e,n)=>Fe(e,t,n)).join(``)).join(``)}<div class="piece-layer" aria-hidden="true">${P.map(Me).join(``)}</div><div class="effect-layer" aria-hidden="true"></div></div><div class="route-layer" aria-hidden="true">${Pe()}</div>
       </div></div>
     </section>
