@@ -127,7 +127,7 @@ p.wallet-status {
 .start-action-icon {
   flex: 0 0 20px;
   height: 20px;
-  background: url('/art/start-actions.png') no-repeat 22% center / 158px auto;
+  background: url('/art/start-actions.webp') no-repeat 22% center / 158px auto;
 }
 
 .start-action-rating { background-position-x: 77.5%; }

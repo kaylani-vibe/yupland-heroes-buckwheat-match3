@@ -41,7 +41,7 @@ body{overflow-x:clip;background:radial-gradient(ellipse at 50% 8%,#49301b88,tran
 .cell.selected{outline:2px solid #ffe492;box-shadow:inset 0 0 17px #e6b12d66;z-index:0}
 .cell.exit{box-shadow:inset 0 0 0 2px #dfae4e,inset 0 0 20px #db8f2944}
 .cell.stone{border:0;background:#241a13;box-shadow:inset 0 0 0 1px #67412b;z-index:2}
-.rock{display:block;width:104%;height:104%;background:url('/art/locked-stone.png') center/contain no-repeat;clip-path:none;filter:drop-shadow(0 2px 1px #0e0907);position:relative;z-index:2}
+.rock{display:block;width:104%;height:104%;background:url('/art/locked-stone.webp') center/contain no-repeat;clip-path:none;filter:drop-shadow(0 2px 1px #0e0907);position:relative;z-index:2}
 .piece .icon{width:98%;height:98%;filter:drop-shadow(0 2px 1px #130a06)}
 .exit-marker{z-index:0;font-size:13px;opacity:.75;bottom:0}
 .exit-scene{position:relative;height:101px;margin:0 12px}
