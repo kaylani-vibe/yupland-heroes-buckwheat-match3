@@ -153,3 +153,50 @@ body {
   padding:2px 12px;
   white-space:nowrap;
 }
+
+.round-finale {
+  position: fixed;
+  inset: 0;
+  z-index: 46;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  touch-action: manipulation;
+  outline: none;
+}
+.round-finale-notice {
+  background: #17100b66;
+  color: #fff;
+  text-shadow: 0 2px 10px #120b07;
+  font: 700 clamp(22px, 6vw, 32px)/1.1 Georgia, serif;
+}
+.round-finale-notice strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 2.35em;
+}
+.round-finale .finale-bonus-flight {
+  pointer-events: none;
+  transition: none;
+  filter: drop-shadow(0 0 7px #ffd677);
+}
+.finale-bonus-flight::before {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  z-index: -1;
+  background: radial-gradient(circle, #ffe5a594, #f9b94a40 42%, transparent 70%);
+}
+.finale-bonus-landed::after {
+  content: '';
+  position: absolute;
+  inset: 10%;
+  border: 2px solid #ffe4a0;
+  border-radius: 50%;
+  box-shadow: 0 0 12px #ffc95f;
+  animation: finale-landing .42s ease-out both;
+}
+@keyframes finale-landing {
+  from { transform: scale(.5); opacity: .95; }
+  to { transform: scale(1.45); opacity: 0; }
+}
