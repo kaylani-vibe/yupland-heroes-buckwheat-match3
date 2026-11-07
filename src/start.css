@@ -7,7 +7,7 @@
   max-height: calc(100dvh - 24px);
   overflow: auto;
   container-type: inline-size;
-  background: url('/art/start-panel.png') center / 100% 100% no-repeat;
+  background: url('/art/start-panel.webp') center / 100% 100% no-repeat;
   color: #fff0c4;
   font-family: Georgia, serif;
   text-align: center;
@@ -304,7 +304,7 @@ p.wallet-status {
   inset:0;
   z-index:-1;
   pointer-events:none;
-  background:url('/art/start-panel.png') center / 100% 100% no-repeat;
+  background:url('/art/start-panel.webp') center / 100% 100% no-repeat;
   filter:saturate(.74) contrast(.9) brightness(1.04);
 }
 .green-start p.wallet-status,

@@ -1,6 +1,6 @@
 /* Approved open-title sunset concept. All text remains live in RU / EN. */
 :root { background:#343b20;color:#ffedbc; }
-body { background:#343b20 url('/art/evening-garden.png') center top / cover no-repeat fixed; }
+body { background:#343b20 url('/art/evening-garden.webp') center top / cover no-repeat fixed; }
 body::before { content:'';position:fixed;inset:0;background:#24270d26;pointer-events:none;z-index:-1; }
 .shell { width:min(100%,480px);max-width:480px;padding-top:max(6px,env(safe-area-inset-top));padding-bottom:max(10px,env(safe-area-inset-bottom)); }
 .shell .game-topbar { justify-content:space-between;height:44px;padding-inline:clamp(16px,5%,24px); }
@@ -125,7 +125,7 @@ body::before { content:'';position:fixed;inset:0;background:#24270d26;pointer-ev
 
 /* Keep both HUD plaques on one compact horizontal line. */
 body {
-  background-image:linear-gradient(180deg,transparent 25px,#3c2d1b55 100px,transparent 280px),url('/art/evening-garden.png');
+  background-image:linear-gradient(180deg,transparent 25px,#3c2d1b55 100px,transparent 280px),url('/art/evening-garden.webp');
 }
 @media (min-width:600px) and (min-height:501px) {
   body { background-position:center top,center -48px; }
