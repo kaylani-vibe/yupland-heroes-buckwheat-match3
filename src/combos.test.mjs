@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,playSwap,canSwap,CROWN,ROWS,COLS,MOVES,SPECIAL,specialType,colorOf} from './engine.mjs';
+import {createGame,makeMask,playSwap,canSwap,CROWN,ROWS,COLS,MOVES,SPECIAL,specialType,colorOf} from './engine.mjs';
 
 const value=(type,color=0)=>10+type*5+color;
 const key=(row,col)=>`${row},${col}`;
@@ -55,4 +55,52 @@ test('wide cross is clipped at the board edge and never creates invalid cells',(
   assert.ok(playSwap(g,from,to));
   assert.ok(g.lastAnimation.steps[0].cleared.every(([r,c])=>r>=0&&r<ROWS&&c>=0&&c<COLS));
   assert.equal(g.lastAnimation.steps[0].effects.length,5);
+});
+
+function bonusMatchFixture(bombCol) {
+  const g=createGame(41);
+  g.board=makeMask().map((line,r)=>line.map((v,c)=>v??(r*2+c)%5));
+  g.board[2][1]=2;g.board[2][6]=2;
+  g.board[2][2]=0;g.board[2][3]=1;g.board[2][4]=0;g.board[2][5]=0;g.board[3][3]=0;
+  if(bombCol!==null)g.board[2][bombCol]=value(SPECIAL.BURST,0);
+  return g;
+}
+for(const bombCol of [2,3,5])test(`bomb at ${bombCol} only detonates a newly made arrow if its blast reaches it`,()=>{
+  const g=bonusMatchFixture(bombCol===3?null:bombCol);
+  if(bombCol===3)g.board[3][3]=value(SPECIAL.BURST,0);
+  assert.ok(playSwap(g,{row:2,col:3},{row:3,col:3}));
+  const step=g.lastAnimation.steps[0],hit=step.cleared.some(([r,c])=>r===2&&c===3);
+  assert.ok(step.created.some(c=>c.row===2&&c.col===3&&specialType(c.value)===SPECIAL.RAY_V));
+  assert.equal(hit,bombCol!==5);
+  if(bombCol!==5){
+    assert.ok(step.cleared.some(([r,c])=>r===0&&c===3),'new arrow reaches beyond bomb radius');
+    assert.ok(step.effects.some(e=>e.type==='v'&&e.col===3));
+  } else assert.equal(specialType(step.afterGravity[2][3]),SPECIAL.RAY_V);
+});
+
+test('new arrow survives an ordinary four-match without a blast',()=>{
+  const g=bonusMatchFixture(null);
+  assert.ok(playSwap(g,{row:2,col:3},{row:3,col:3}));
+  const step=g.lastAnimation.steps[0];
+  assert.ok(!step.cleared.some(([r,c])=>r===2&&c===3));
+  assert.equal(specialType(step.afterGravity[2][3]),SPECIAL.RAY_V);
+});
+
+for(const [from,to] of [[{row:4,col:3},{row:4,col:4}],[{row:7,col:7},{row:7,col:6}],[{row:7,col:6},{row:7,col:7}]])test(`two bombs combine in a clipped 5x5 blast at ${to.row},${to.col}`,()=>{
+  const g=createGame();g.board[from.row][from.col]=value(SPECIAL.BURST,1);g.board[to.row][to.col]=value(SPECIAL.BURST,3);
+  g.board[6][5]=CROWN;
+  const before=structuredClone(g.board);
+  assert.ok(canSwap(g.board,from,to));assert.deepEqual(g.board,before);
+  assert.ok(playSwap(g,from,to));assert.equal(g.moves,MOVES-1);
+  const step=g.lastAnimation.steps[0],cleared=new Set(step.cleared.map(([r,c])=>key(r,c)));
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)assert.equal(cleared.has(key(r,c)),before[r][c]>=0&&before[r][c]!==CROWN&&Math.abs(r-to.row)<=2&&Math.abs(c-to.col)<=2);
+  assert.deepEqual(step.effects,[{type:'burst',row:to.row,col:to.col,radius:2}]);
+});
+
+test('every pair of neighboring bonus types combines regardless of color or match',()=>{
+  for(const left of [SPECIAL.RAY_H,SPECIAL.RAY_V,SPECIAL.BURST,SPECIAL.RAINBOW])for(const right of [SPECIAL.RAY_H,SPECIAL.RAY_V,SPECIAL.BURST,SPECIAL.RAINBOW]){
+    const g=createGame();g.board[a.row][a.col]=value(left,0);g.board[b.row][b.col]=value(right,3);
+    assert.ok(canSwap(g.board,a,b),`pair ${left}+${right}`);
+    assert.ok(playSwap(g,a,b));assert.equal(g.moves,MOVES-1);
+  }
 });
