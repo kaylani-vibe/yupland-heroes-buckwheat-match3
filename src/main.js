@@ -5,7 +5,7 @@ import './start.css';
 import './evening.css';
 import './sound.css';
 import {titles,crownLabel,translate,localize} from './i18n.mjs';
-import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,STONE,HOLE,ENTRY_COLS,EXITS,SPECIAL,colorOf,specialType,createGame,playSwap,payout} from './engine.mjs';
+import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,STONE,HOLE,ENTRY_COLS,EXITS,SPECIAL,colorOf,specialType,createGame,playSwap,finishBonuses,payout} from './engine.mjs';
 import {createInventory} from './inventory.mjs';
 import {createSoundPreview} from './sound-preview.mjs';
 
@@ -16,6 +16,7 @@ const app=document.querySelector('#app');
 const soundPreview=createSoundPreview();
 const previewBoard=createGame().board;
 let nextId=1,game=null,selected=null,pointerStart=null,ignoreClick=false,busy=false;
+let finale=null;
 let pieces=makePieces(previewBoard),bagOpen=false,exitOpen=false,soundOpen=false;
 const qaMode=import.meta.env.DEV&&[...new URLSearchParams(location.search).keys()].some(k=>k.startsWith('qa'));
 const inventory=createInventory(localStorage,qaMode?'buckwheat-match3:qa-crowns':'buckwheat-match3:crowns');
@@ -53,15 +54,6 @@ function settleRound(round) {
   const {multiplier}=paymentMethods[round.entryCurrency];
   round.settlement={net:net*multiplier};
   updateBalance(round.entryCurrency,returned*multiplier);
-}
-
-function roundResult(round) {
-  const {net}=round.settlement;
-  const unit=round.entryCurrency==='crypto'?'Darai':language==='en'?'gold':'золота';
-  const label=net>0?(language==='en'?'Won':'Выигрыш'):
-    net<0?(language==='en'?'Spent':'Потрачено'):(language==='en'?'Break even':'Без потерь и выигрыша');
-  const sign=net>0?'+':net<0?'−':'';
-  return `<p class="result-saved round-result">${label} <b>${sign}${formatRating(Math.abs(net))} ${unit}</b></p>`;
 }
 
 function startWindow() {
@@ -131,23 +123,30 @@ function soundWindow() {
   </div>`;
 }
 
+const emptyCrown = '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M12 53 8 34a5 5 0 1 1 5-7l8 8 7-15-4-4 8-10 8 10-4 4 7 15 8-8a5 5 0 1 1 5 7l-4 19q-20 5-40 0Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 function resultWindow() {
-  const won = game.crowns >= TARGET_CROWNS;
   const earned = game.crowns;
-  const slots = earned === 1 ? [false,true,false] : [0,1,2].map(i => i < earned);
+  const won = earned === TARGET_CROWNS;
+  const {net} = game.settlement;
+  const unit = game.entryCurrency === 'crypto' ? 'Darai' : language === 'en' ? 'gold' : 'золота';
+  const label = net < 0 ? 'Потрачено за игру' : 'Ваш выигрыш';
+  const amount = `${net > 0 ? '+' : ''}${formatRating(Math.abs(net))} ${unit}`;
+  const slots = earned === 1 ? [false,true,false] : Array.from({length:TARGET_CROWNS},(_,i)=>i<earned);
   return `<div class="overlay start-overlay result-overlay">
-    <section class="green-start green-result ${won ? 'result-won' : ''}" role="dialog" aria-modal="true" aria-labelledby="result-title">
+    <section class="green-start green-result ${won ? 'result-won' : ''}" role="dialog" aria-modal="true" aria-labelledby="result-title" tabindex="-1">
       <div class="start-content result-content">
-        <h2 id="result-title">${won ? 'Все короны<br>спасены!' : language==='en' ? 'Out of<br>moves' : 'Ходы<br>закончились'}</h2>
-        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
-        <div class="result-crowns" aria-hidden="true">${slots.map(filled => `<div class="result-crown ${filled ? 'crown-earned' : 'crown-missing'}">${icon(CROWN)}</div>`).join('')}</div>
-        <p class="result-earned">${earned ? `${earned === 1 ? 'Получена' : 'Получено'} ${earned} ${crownWord(earned)}` : 'Короны не получены'}</p>
-        ${roundResult(game)}
-        <div class="result-grecha">${icon(0)}<span>Греча <b>${formatRating(game.grecha)}</b></span></div>
-        <button class="primary start-play" data-action="restart">${won ? 'Играть ещё' : 'Попробовать ещё'}</button>
-        <div class="start-links">
-          <button class="start-secondary" data-action="bag"><span class="start-action-icon start-action-bag" aria-hidden="true"></span>Рюкзак</button>
-          <button class="start-secondary" data-action="rating"><span class="start-action-icon start-action-rating" aria-hidden="true"></span>Рейтинг</button>
+        <div class="result-summary">
+          <h2 id="result-title">${won ? 'Поздравляем!' : label}</h2>
+          ${won ? `<p class="result-caption">${label}</p>` : ''}
+          <p class="round-result">${amount}</p>
+          <div class="result-crowns" role="img" aria-label="Доставлено корон: ${earned} из ${TARGET_CROWNS}">${slots.map(filled => `<div class="result-crown ${filled ? 'crown-earned' : 'crown-missing'}">${filled ? icon(CROWN) : emptyCrown}</div>`).join('')}</div>
+        </div>
+        <div class="result-details">
+          <p class="result-earned"><span>Всего опущено корон</span> <b>${formatRating(inventory.count())}</b></p>
+          <p class="result-grecha">${icon(0)}<span>Греча за партию <b>${formatRating(game.grecha)}</b></span></p>
+          <button class="primary start-play" data-action="restart">Играть ещё</button>
+          <button class="result-rating" data-action="rating"><span class="start-action-icon start-action-rating" aria-hidden="true"></span>Рейтинг</button>
         </div>
       </div>
     </section>
@@ -225,6 +224,16 @@ function newGame(){
       next.board[8][6]=CROWN;
       next.board[8][4]=1;next.board[8][5]=1;next.board[9][6]=1;
     }
+    const finaleFixture=new URLSearchParams(location.search).get('qaFinale');
+    if(finaleFixture==='win'){
+      next.crowns=2;next.moves=5;
+      next.board[8][6]=CROWN;
+      next.board[8][4]=1;next.board[8][5]=1;next.board[9][6]=1;
+    }else if(finaleFixture==='out-of-moves'){
+      next.moves=1;
+      next.board[4][3]=25;next.board[4][4]=28;
+      next.board[0][2]=15;
+    }
     if(new URLSearchParams(location.search).get('qaCrown')==='blocked'){
       next.board[4][6]=CROWN;
       next.board[5][3]=0;next.board[5][4]=0;next.board[5][5]=1;next.board[4][5]=0;
@@ -240,7 +249,12 @@ function newGame(){
   return next;
 }
 function makePieces(board){return board.flatMap((line,row)=>line.flatMap((value,col)=>value>=0?[{id:nextId++,row,col,value}]:[]));}
-const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const wait=(ms,signal)=>new Promise((resolve,reject)=>{
+  if(signal?.aborted){reject(signal.reason);return;}
+  const abort=()=>{clearTimeout(timer);reject(signal.reason);};
+  const timer=setTimeout(()=>{signal?.removeEventListener('abort',abort);resolve();},ms);
+  signal?.addEventListener('abort',abort,{once:true});
+});
 const frame=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
 const icon=kind=>`<span class="icon icon-${kind}" aria-hidden="true"></span>`;
 const specialGlyph={1:'↔',2:'↕',3:'✸',4:'★'};
@@ -316,9 +330,10 @@ function flash(cells,wave,runs,effects=[],consumed=[]){
   }
   for(const run of runs)if(run.length>=4){const first=run.cells[0],last=run.cells.at(-1);fx.insertAdjacentHTML('beforeend',`<i class="match-beam ${first.row===last.row?'horizontal':'vertical'}" style="--x:${first.col};--y:${first.row};--span:${run.length}"></i>`);}
   if(wave>1)fx.insertAdjacentHTML('beforeend',`<span class="combo-pop">${tr(`Каскад ×${wave}`)}</span>`);
-  setTimeout(()=>{if(fx.isConnected)fx.innerHTML='';},600);
+  const particles=[...fx.children];
+  setTimeout(()=>particles.forEach(particle=>particle.remove()),600);
 }
-async function collapseTo(paths){
+async function collapseTo(paths,signal){
   const moving=paths.map(route=>{
     let p=route.from?pieceAt(route.from.row,route.from.col):null;
     if(!p){p={id:nextId++,...route.path[0],value:route.value};pieces.push(p);addPiece(p);}
@@ -331,6 +346,7 @@ async function collapseTo(paths){
     return {p,waypoints};
   });
   await frame();
+  signal?.throwIfAborted();
   const stages=Math.max(0,...moving.map(m=>m.waypoints.length-1));
   for(let i=1;i<=stages;i++){
     let duration=160;
@@ -342,7 +358,7 @@ async function collapseTo(paths){
       const el=nodeFor(p);if(el)el.style.transitionDuration=`${duration}ms`;
       p.row=waypoints[i].row;p.col=waypoints[i].col;
     }
-    updatePositions();await wait(duration);
+    updatePositions();await wait(duration,signal);
   }
   for(const {p} of moving){const el=nodeFor(p);if(el)el.style.removeProperty('transition-duration');}
   if(moving.length)soundPreview.cue('land');
@@ -352,31 +368,162 @@ async function animateSwap(a,b){
   const p=pieceAt(a.row,a.col),q=pieceAt(b.row,b.col);if(!p||!q)return;
   [p.row,q.row]=[q.row,p.row];[p.col,q.col]=[q.col,p.col];updatePositions();await wait(190);
 }
-async function performSwap(a,b){
-  if(!game||game.finished||busy)return;
-  busy=true;selected=null;
-  const valid=playSwap(game,a,b);
-  await animateSwap(a,b);
-  if(!valid){await animateSwap(a,b);busy=false;render();return;}
-  for(const step of game.lastAnimation.steps){
-    for(const change of step.transformed??[]){const p=pieceAt(change.row,change.col);if(p){p.value=change.value;const el=nodeFor(p);if(el){el.classList.add('powered','transforming');el.innerHTML=pieceInner(p);}}}
-    if(step.transformed?.length){await wait(320);for(const p of pieces)nodeFor(p)?.classList.remove('transforming');}
+function transformPiece({row,col,value}) {
+  const piece=pieceAt(row,col);
+  if(!piece)return;
+  piece.value=value;
+  const node=nodeFor(piece);
+  if(!node)return;
+  node.classList.add('powered','transforming');
+  node.innerHTML=pieceInner(piece);
+  return node;
+}
+
+async function launchFinaleBonuses(placements,overlay,signal) {
+  const counter=app.querySelector('.moves-count');
+  const movesLeft=Number(counter.textContent);
+  const spacing=Math.max(220,Math.min(660,6500/placements.length));
+  const duration=950;
+
+  await Promise.all(placements.map(async (placement,index)=>{
+    if(index)await wait(index*spacing,signal);
+    const source=counter.getBoundingClientRect();
+    const target=nodeFor(pieceAt(placement.row,placement.col)).getBoundingClientRect();
+    const size=Math.min(target.width,target.height);
+    const x=source.left+source.width/2;
+    const y=source.top+source.height/2;
+    const dx=target.left+target.width/2-x;
+    const dy=target.top+target.height/2-y;
+    // Swing toward the board center before dropping onto the chosen cell.
+    const board=layer().getBoundingClientRect();
+    const inward=board.left+board.width/2-x;
+    const controlX=dx*.56+Math.sign(inward)*Math.min(85,board.width*.24);
+    const controlY=Math.min(0,dy*.2)-Math.min(64,Math.max(20,y-12));
+    const frames=Array.from({length:17},(_,step)=>{
+      const t=step/16;
+      const bend=2*t*(1-t);
+      const tx=bend*controlX+t*t*dx;
+      const ty=bend*controlY+t*t*dy;
+      const scale=.62+.38*t+.6*Math.sin(Math.PI*t);
+      const tilt=Math.sign(inward)*18*Math.sin(Math.PI*t);
+      return {transform:`translate(${tx}px,${ty}px) rotate(${tilt}deg) scale(${scale})`};
+    });
+
+    const flight=document.createElement('span');
+    flight.className='piece powered finale-bonus-flight';
+    flight.setAttribute('aria-hidden','true');
+    Object.assign(flight.style,{left:`${x-size/2}px`,top:`${y-size/2}px`,width:`${size}px`,height:`${size}px`});
+    flight.innerHTML=pieceInner(placement);
+    overlay.append(flight);
+    counter.textContent=movesLeft-index-1;
+    counter.animate([{scale:1},{scale:1.22},{scale:1}],{duration:230,easing:'ease-out'});
+
+    const motion=flight.animate(frames,{duration,easing:'cubic-bezier(.2,.55,.53,1)',fill:'forwards'});
+    const abort=()=>motion.cancel();
+    signal.addEventListener('abort',abort,{once:true});
+    try{
+      await motion.finished;
+      signal.throwIfAborted();
+      transformPiece(placement)?.classList.add('finale-bonus-landed');
+    }catch(error){
+      signal.throwIfAborted();
+      throw error;
+    }finally{
+      signal.removeEventListener('abort',abort);
+      flight.remove();
+    }
+  }));
+
+  await wait(1000,signal);
+  for(const node of layer().querySelectorAll('.finale-bonus-landed'))node.classList.remove('transforming','finale-bonus-landed');
+}
+
+async function animateSteps(animation,signal){
+  for(const step of animation.steps){
+    if(!signal&&step.transformed?.length){
+      const transformed=step.transformed.map(transformPiece);
+      await wait(320);
+      for(const node of transformed)node?.classList.remove('transforming');
+    }
     for(const created of step.created){const p=pieceAt(created.row,created.col);if(p){p.value=created.value;const el=nodeFor(p);if(el){el.classList.add('powered');el.innerHTML=pieceInner(p);}}}
-    if(step.created.some(p=>step.cleared.some(([r,c])=>r===p.row&&c===p.col)))await wait(170);
+    if(step.created.some(p=>step.cleared.some(([r,c])=>r===p.row&&c===p.col)))await wait(170,signal);
     flash(step.cleared,step.wave,step.runs,step.effects,step.consumed);
     for(const [row,col] of step.cleared)nodeFor(pieceAt(row,col))?.classList.add('dying');
-    await wait(230);
+    await wait(230,signal);
     for(const [row,col] of step.cleared){const p=pieceAt(row,col);if(p)removePiece(p);}
-    await collapseTo(step.gravityPaths);
+    await collapseTo(step.gravityPaths,signal);
     if(step.delivered){
       const crown=pieceAt(step.deliveredAt.row,step.deliveredAt.col);
       if(crown){nodeFor(crown)?.classList.add('delivered');effectLayer()?.insertAdjacentHTML('beforeend',`<span class="crown-pop">+1 ${crownWord(1)}</span>`);await wait(400);removePiece(crown);}
       await collapseTo(step.deliveryPaths);
     }
   }
+}
+
+function updateRoundCounters() {
+  app.querySelector('.moves-count').textContent=game.moves;
+  app.querySelector('.grecha-tally b').textContent=game.grecha;
+  app.querySelector('.crown-tally b').firstChild.textContent=game.crowns;
+  app.querySelector('.crown-tally').setAttribute('aria-label',
+    language==='en'?`Crowns rescued: ${game.crowns} of ${TARGET_CROWNS}`:`Доставлено корон: ${game.crowns} из ${TARGET_CROWNS}`);
+}
+
+async function playFinale() {
+  const outOfMoves=game.moves===0 && game.crowns<TARGET_CROWNS;
+  const controller=new AbortController();
+  finale=controller;
+  const shell=app.querySelector('.shell');
+  for(const child of shell.children)child.inert=true;
+  const overlay=document.createElement('div');
+  overlay.className='round-finale';
+  overlay.tabIndex=-1;
+  overlay.setAttribute('role','group');
+  overlay.setAttribute('aria-label',tr('Финал партии. Нажми Enter, чтобы перейти к результату'));
+  shell.append(overlay);
+  overlay.focus({preventScroll:true});
+  updateRoundCounters();
+  const animation=finishBonuses(game);
+  try{
+    const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(animation.steps.length && !reduced){
+      await wait(350,controller.signal);
+      if(animation.transformed.length)await launchFinaleBonuses(animation.transformed,overlay,controller.signal);
+      await animateSteps(animation,controller.signal);
+      await wait(400,controller.signal);
+    } else if(animation.steps.length){
+      pieces=makePieces(game.board);
+      layer().innerHTML=pieces.map(pieceMarkup).join('');
+    }
+    updateRoundCounters();
+    if(outOfMoves){
+      overlay.classList.add('round-finale-notice');
+      overlay.innerHTML=`<div role="status"><span>${tr('Ходы закончились')}</span><strong>0</strong></div>`;
+      await wait(1050,controller.signal);
+    }
+  }catch(error){
+    if(error!==controller.signal.reason)throw error;
+  }finally{
+    finale=null;
+    pieces=makePieces(game.board);
+    settleRound(game);
+  }
+}
+
+async function performSwap(a,b){
+  if(!game||game.finished||busy)return;
+  busy=true;selected=null;
+  const valid=playSwap(game,a,b);
+  await animateSwap(a,b);
+  if(!valid){await animateSwap(a,b);busy=false;render();return;}
+  inventory.collect(game);
+  const selectedCell=app.querySelector('.cell.selected');
+  selectedCell?.classList.remove('selected');
+  selectedCell?.setAttribute('aria-pressed','false');
+  await animateSteps(game.lastAnimation);
   if(game.lastAnimation.shuffled){layer()?.classList.add('shuffling');await wait(230);pieces=makePieces(game.board);layer().innerHTML=pieces.map(pieceMarkup).join('');layer()?.classList.remove('shuffling');await wait(230);}
-  if(game.finished)settleRound(game);
+  if(game.finished)await playFinale();
   busy=false;render();
+  if(game.finished)app.querySelector('.green-result')?.focus();
 }
 function choose(row,col){
   if(!game||game.finished||busy)return;
@@ -407,6 +554,7 @@ app.addEventListener('input',event=>{
 });
 
 app.addEventListener('click',event=>{
+  if(finale){finale.abort();return;}
   const action=event.target.closest('[data-action]')?.dataset.action;
   if (busy) return;
   if(action==='sound'){soundOpen=true;render();app.querySelector('.sound-dialog').focus();return;}
@@ -449,7 +597,7 @@ app.addEventListener('click',event=>{
     next.entryCurrency=key;
     updateBalance(key,-entry);
     game=next;
-    if(game.finished)settleRound(game);
+    if(game.finished){inventory.collect(game);settleRound(game);}
     soundPreview.start();
     pieces=makePieces(game.board);selected=null;busy=false;bagOpen=false;render();return;
   }
@@ -467,6 +615,11 @@ app.addEventListener('pointerup',event=>{
 render();
 
 app.addEventListener('keydown', event => {
+  if(finale){
+    event.preventDefault();
+    if(['Enter',' ','Escape'].includes(event.key))finale.abort();
+    return;
+  }
   if(soundOpen){
     if(event.key==='Escape'){soundOpen=false;render();app.querySelector('[data-action="sound"]').focus();}
     else if(event.key==='Tab'){

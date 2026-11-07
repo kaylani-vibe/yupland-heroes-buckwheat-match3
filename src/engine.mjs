@@ -115,8 +115,8 @@ export function makeBoard(random=seededRandom(20261103),crown=false) {
 
 // Every token keeps its actual route so the renderer can animate diagonal slides
 // around obstacles instead of reconstructing motion from final column values.
-export function gravity(board,random,crownColumn=null,paths=[]) {
-  const tokens=board.map((line,row)=>line.map((value,col)=>value>=0?{value,from:{row,col},path:[{row,col}]}:null));
+export function gravity(board,random,crownColumn=null,paths=[],freezeCrown=false) {
+  const tokens=board.map((line,row)=>line.map((value,col)=>value>=0&&!(freezeCrown&&value===CROWN)?{value,from:{row,col},path:[{row,col}]}:null));
   const all=tokens.flat().filter(Boolean);
   let crown=null;
   const move=(row,col,toRow,toCol)=>{
@@ -128,7 +128,7 @@ export function gravity(board,random,crownColumn=null,paths=[]) {
     // diagonal gap before the next piece in that column immediately fills it.
     if(token.value!==CROWN&&row>0){
       for(const sourceCol of [col-1,col+1]){
-        if(sourceCol<0||sourceCol>=COLS||board[row-1][sourceCol]!==CROWN)continue;
+        if(sourceCol<0||sourceCol>=COLS||tokens[row-1][sourceCol]?.value!==CROWN)continue;
         if(board[row][sourceCol]!==STONE&&board[row][sourceCol]!==HOLE)continue;
         move(row-1,sourceCol,row,col);
         break;
@@ -139,13 +139,13 @@ export function gravity(board,random,crownColumn=null,paths=[]) {
     let moved=false;
     // Never let a neighbouring piece take an open cell directly below a crown.
     for(let row=ROWS-2;row>=0;row--)for(let col=0;col<COLS;col++){
-      if(board[row][col]===CROWN&&board[row+1][col]===EMPTY){move(row,col,row+1,col);moved=true;}
+      if(tokens[row][col]?.value===CROWN&&board[row+1][col]===EMPTY){move(row,col,row+1,col);moved=true;}
     }
     // A piece resting on a fixed block claims an adjacent cleared cell before
     // the neighbouring column refills it. Crowns get first choice of that gap.
     for(const crownFirst of [true,false])for(let row=ROWS-2;row>=0;row--)for(let col=0;col<COLS;col++){
       if(!tokens[row][col]||(board[row][col]===CROWN)!==crownFirst)continue;
-      if(board[row+1][col]!==STONE&&board[row+1][col]!==HOLE)continue;
+      if(board[row+1][col]!==STONE&&board[row+1][col]!==HOLE&&!(freezeCrown&&board[row+1][col]===CROWN))continue;
       const sides=col<COLS/2?[col+1,col-1]:[col-1,col+1];
       const side=sides.find(c=>c>=0&&c<COLS&&board[row+1][c]===EMPTY);
       if(side!==undefined){move(row,col,row+1,side);moved=true;}
@@ -160,7 +160,7 @@ export function gravity(board,random,crownColumn=null,paths=[]) {
     for(let row=ROWS-1;row>0;row--)for(let col=0;col<COLS;col++){
       if(board[row][col]!==EMPTY)continue;
       let above=row-1;while(above>=0&&board[above][col]===EMPTY)above--;
-      if(above<0||board[above][col]>=0)continue;
+      if(above<0||(board[above][col]>=0&&!(freezeCrown&&board[above][col]===CROWN)))continue;
       const candidates=col<COLS/2?[col+1,col-1]:[col-1,col+1];
       const source=candidates.find(c=>c>=0&&c<COLS&&tokens[row-1][c]&&board[row][c]!==EMPTY);
       if(source!==undefined){move(row-1,source,row,col);moved=true;}
@@ -239,14 +239,14 @@ function expandRemoval(board,initial,created,consumed=new Set(),effects=[]) {
   return cleared;
 }
 
-function resolve(game, animation, preferred, firstClear) {
+function resolve(game, animation, preferred, firstClear, finale=false) {
   let chain=0, gain=0;
   let forced=firstClear;
   while (chain<40) {
     const runs=forced?[]:findRuns(game.board);
     if (!runs.length&&!forced) break;
     chain++;
-    const created=forced?new Map():planSpecials(runs,chain===1?preferred:[]);
+    const created=forced||finale?new Map():planSpecials(runs,chain===1?preferred:[]);
     const initial=forced??new Set(runs.flatMap(run=>run.cells.map(cellId)));
     const effects=chain===1?[...animation.effects]:[];
     const cells=expandRemoval(game.board,initial,created,chain===1?new Set(animation.consumed):new Set(),effects);
@@ -261,7 +261,7 @@ function resolve(game, animation, preferred, firstClear) {
     // Crown supply uses a real refill vacancy connected to a marked top entry.
     // A delivery never spawns its successor by itself: a later clear is required.
     let crownColumn=null;
-    if(game.crowns<TARGET_CROWNS&&!game.board.some(row=>row.includes(CROWN))){
+    if(!finale&&game.crowns<TARGET_CROWNS&&!game.board.some(row=>row.includes(CROWN))){
       const eligible=ENTRY_COLS.filter(col=>{
         for(let row=0;row<ROWS;row++){
           if(game.board[row][col]===STONE||game.board[row][col]===HOLE)return false;
@@ -272,12 +272,12 @@ function resolve(game, animation, preferred, firstClear) {
       crownColumn=eligible.find(col=>col!==game.lastEntryCol)??eligible[0]??null;
     }
     const gravityPaths=[];
-    const spawned=gravity(game.board,game.random,crownColumn,gravityPaths);
+    const spawned=gravity(game.board,game.random,crownColumn,gravityPaths,finale);
     if(spawned)game.lastEntryCol=spawned.entryCol;
     const afterGravity=snapshot(game.board);
     let delivered=false;
     const deliveryPaths=[];
-    const deliveredAt=EXITS.find(cell=>game.board[cell.row][cell.col]===CROWN)??null;
+    const deliveredAt=finale?null:EXITS.find(cell=>game.board[cell.row][cell.col]===CROWN)??null;
     if (deliveredAt) {
       delivered=true;
       game.crowns++;
@@ -341,6 +341,36 @@ export function playSwap(game,a,b) {
   resolve(game,animation,[a,b],firstClear);
   game.lastAnimation=animation;
   return true;
+}
+
+export function finishBonuses(game) {
+  if (!game.finished || game.finalePlayed) return null;
+  game.finalePlayed=true;
+  const animation={steps:[],transformed:[],effects:[],consumed:[]};
+  const gems=[];
+  const bonuses=new Set();
+  const colorClears=new Set();
+  game.board.forEach((line,row)=>line.forEach((value,col)=>{
+    if(specialType(value)){
+      bonuses.add(cellId({row,col}));
+      if(specialType(value)===SPECIAL.RAINBOW)colorClears.add(Math.floor(game.random()*GEM_COUNT));
+    }else if(value>=0&&value<GEM_COUNT){
+      gems.push({row,col,value});
+    }
+  }));
+  // Each unused move becomes one bonus, on a different ordinary gem.
+  for(let left=game.moves;left>0&&gems.length;left--){
+    const [gem]=gems.splice(Math.floor(game.random()*gems.length),1);
+    const {row,col}=gem;
+    const value=specialValue(1+Math.floor(game.random()*3),gem.value);
+    game.board[row][col]=value;
+    animation.transformed.push({row,col,value});
+    bonuses.add(cellId(gem));
+  }
+  for(const gem of gems)if(colorClears.has(gem.value))bonuses.add(cellId(gem));
+  game.moves=0;
+  if(bonuses.size)resolve(game,animation,[],bonuses,true);
+  return animation;
 }
 
 export function payout(game) {
