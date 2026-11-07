@@ -70,7 +70,7 @@ function startWindow() {
     <section class="green-start" role="dialog" aria-modal="true" aria-labelledby="start-title">
       <div class="start-content">
         <h2 id="start-title">Верни короны</h2>
-        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
         <p class="start-goal">Опусти 3 короны за ${MOVES} ходов</p>
         ${walletConnected
           ? '<p class="wallet-status">Кошелёк подключён</p>'
@@ -102,7 +102,7 @@ function exitWindow() {
     <section class="green-start green-exit" role="alertdialog" aria-modal="true" aria-labelledby="exit-title" aria-describedby="exit-message">
       <div class="start-content exit-content">
         <h2 id="exit-title">Выйти из игры?</h2>
-        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
         <p id="exit-message">Прогресс текущей партии будет потерян. Продолжить её позже не получится.</p>
         <p class="exit-kept">${language==='en'?'Collected crowns will be paid out in your entry currency.':'За полученные короны начислится выплата в валюте входа.'}</p>
         <button class="primary start-play" data-action="cancel-exit">Продолжить игру</button>
@@ -139,7 +139,7 @@ function resultWindow() {
     <section class="green-start green-result ${won ? 'result-won' : ''}" role="dialog" aria-modal="true" aria-labelledby="result-title">
       <div class="start-content result-content">
         <h2 id="result-title">${won ? 'Все короны<br>спасены!' : language==='en' ? 'Out of<br>moves' : 'Ходы<br>закончились'}</h2>
-        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
         <div class="result-crowns" aria-hidden="true">${slots.map(filled => `<div class="result-crown ${filled ? 'crown-earned' : 'crown-missing'}">${icon(CROWN)}</div>`).join('')}</div>
         <p class="result-earned">${earned ? `${earned === 1 ? 'Получена' : 'Получено'} ${earned} ${crownWord(earned)}` : 'Короны не получены'}</p>
         ${roundResult(game)}
@@ -160,7 +160,7 @@ function bagWindow() {
     <section class="green-start green-bag" role="dialog" aria-modal="true" aria-labelledby="bag-title">
       <div class="start-content bag-content">
         <h2 id="bag-title">Рюкзак</h2>
-        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
         <div class="bag-item" aria-label="${count} ${crownWord(count)}">
           ${icon(CROWN)}<span class="bag-quantity" aria-hidden="true">×${count}</span>
         </div>
@@ -192,7 +192,7 @@ function ratingWindow() {
     <section class="green-start green-rating" role="dialog" aria-modal="true" aria-labelledby="rating-title">
       <div class="start-content rating-content">
         <h2 id="rating-title">Рейтинг</h2>
-        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
         <div class="rating-metrics" role="group" aria-label="Показатель рейтинга">
           <button data-action="rating-grecha" aria-pressed="${rating === 'grecha'}">${icon(0)}Греча</button>
           <button data-action="rating-crowns" aria-pressed="${rating === 'crowns'}">${icon(CROWN)}Короны</button>
@@ -272,7 +272,7 @@ function render(){
           <text class="title-line-two"><textPath href="#title-bottom" startOffset="50%" text-anchor="middle">${titles[language][1]}</textPath></text>
         </svg>
       </h1>
-      <img class="title-flower" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+      <img class="title-flower" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
     </header>
     <section class="game-panel" aria-label="Игровая партия" ${!started || finished || rating || bagOpen ? 'inert' : ''}>
       <div class="mission-row">
@@ -281,7 +281,7 @@ function render(){
       </div>
       <div class="journey-strip"><div class="crown-tally" aria-label="Доставлено корон: ${crowns} из 3">${icon(CROWN)}<b>${crowns}<span> / ${TARGET_CROWNS}</span></b></div>${started && !finished ? '<button class="journey-rating" data-action="rating" aria-label="Открыть рейтинг" title="Рейтинг"><span class="start-action-icon start-action-rating" aria-hidden="true"></span></button>' : '<span class="status-divider" aria-hidden="true"></span>'}<div class="grecha-tally">${icon(0)}<span>Греча <b>${game?.grecha??0}</b></span></div></div>
       <div class="board-area"><div class="board-frame">
-        <img class="board-art" src="${import.meta.env.BASE_URL}art/kingdom-frame.png?v=compact-20261104" alt="" draggable="false">
+        <img class="board-art" src="${import.meta.env.BASE_URL}art/kingdom-frame.webp?v=compact-20261104" alt="" draggable="false">
         <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div></div><div class="route-layer" aria-hidden="true">${routeMarkers()}</div>
       </div></div>
     </section>
