@@ -17,7 +17,8 @@ export const specialType = value => value>=15 ? Math.floor((value-10)/GEM_COUNT)
 export const colorOf = value => value>=15 && specialType(value)!==SPECIAL.RAINBOW ? (value-10)%GEM_COUNT : value>=0 && value<GEM_COUNT ? value : -1;
 const specialValue = (type,color=0) => 10+type*GEM_COUNT+color;
 export const ENTRY_COLS = [1,6];
-export const EXITS = ENTRY_COLS.map(col=>({row:ROWS-1,col}));
+export const EXIT_COLS = [1,2,5,6];
+export const EXITS = EXIT_COLS.map(col=>({row:ROWS-1,col}));
 export const EXIT = EXITS[0];
 export const CROWN_START = { row: 0, col: ENTRY_COLS[0] };
 
@@ -70,10 +71,10 @@ export function swap(board,a,b) { [board[a.row][a.col],board[b.row][b.col]]=[boa
 export function canSwap(board,a,b) {
   if (!inside(a) || !inside(b) || !adjacent(a,b)) return false;
   const va=board[a.row][a.col],vb=board[b.row][b.col];
-  if(va<0||vb<0||va===CROWN||vb===CROWN)return false;
-  if(specialType(va)===SPECIAL.RAINBOW||specialType(vb)===SPECIAL.RAINBOW)return true;
+  if(va<0||vb<0)return false;
+  if(va!==CROWN&&vb!==CROWN&&(specialType(va)===SPECIAL.RAINBOW||specialType(vb)===SPECIAL.RAINBOW))return true;
   const ta=specialType(va),tb=specialType(vb),ray=t=>t===SPECIAL.RAY_H||t===SPECIAL.RAY_V;
-  if((ray(ta)&&ray(tb))||(ray(ta)&&tb===SPECIAL.BURST)||(ray(tb)&&ta===SPECIAL.BURST))return true;
+  if((ta===SPECIAL.BURST&&tb===SPECIAL.BURST)||(ray(ta)&&ray(tb))||(ray(ta)&&tb===SPECIAL.BURST)||(ray(tb)&&ta===SPECIAL.BURST))return true;
   swap(board,a,b);
   const valid = findRuns(board).some(run => run.cells.some(cell =>
     (cell.row===a.row && cell.col===a.col) || (cell.row===b.row && cell.col===b.col)));
@@ -123,6 +124,16 @@ export function gravity(board,random,crownColumn=null,paths=[]) {
     tokens[toRow][toCol]=token;tokens[row][col]=null;
     board[toRow][toCol]=board[row][col];board[row][col]=EMPTY;
     token.path.push({row:toRow,col:toCol});
+    // When a neighbouring piece falls away, give the crown the newly opened
+    // diagonal gap before the next piece in that column immediately fills it.
+    if(token.value!==CROWN&&row>0){
+      for(const sourceCol of [col-1,col+1]){
+        if(sourceCol<0||sourceCol>=COLS||board[row-1][sourceCol]!==CROWN)continue;
+        if(board[row][sourceCol]!==STONE&&board[row][sourceCol]!==HOLE)continue;
+        move(row-1,sourceCol,row,col);
+        break;
+      }
+    }
   };
   for(let round=0;round<ROWS*COLS*ROWS;round++){
     let moved=false;
@@ -197,21 +208,32 @@ function planSpecials(runs,preferred){
   return created;
 }
 
-function expandRemoval(board,initial,protect,consumed=new Set()){
-  const cleared=new Set(initial),queue=[...initial];
+function expandRemoval(board,initial,created,consumed=new Set(),effects=[]) {
+  // Matches reserve new bonuses. Only an explosion can clear that reservation.
+  // Queue the original bonus separately so replacing a bomb cannot silence it.
+  const cleared=new Set([...initial].filter(id=>!created.has(id)));
+  const queue=[...initial].map(id=>({id,value:board[fromId(id).row][fromId(id).col],original:true}));
   while(queue.length){
-    const cell=fromId(queue.pop()),value=board[cell.row][cell.col],type=specialType(value);
-    if(consumed.has(cellId(cell)))continue;
+    const {id:source,value,original}=queue.pop(),cell=fromId(source),type=specialType(value);
+    if(original&&consumed.has(source))continue;
     if(!type||type===SPECIAL.RAINBOW)continue;
     const affected=[];
-    if(type===SPECIAL.RAY_H)for(let col=0;col<COLS;col++)affected.push({row:cell.row,col});
-    if(type===SPECIAL.RAY_V)for(let row=0;row<ROWS;row++)affected.push({row,col:cell.col});
+    if(type===SPECIAL.RAY_H){
+      effects.push({type:'h',row:cell.row,col:0});
+      for(let col=0;col<COLS;col++)affected.push({row:cell.row,col});
+    }
+    if(type===SPECIAL.RAY_V){
+      effects.push({type:'v',row:0,col:cell.col});
+      for(let row=0;row<ROWS;row++)affected.push({row,col:cell.col});
+    }
     if(type===SPECIAL.BURST)for(let row=cell.row-1;row<=cell.row+1;row++)for(let col=cell.col-1;col<=cell.col+1;col++)affected.push({row,col});
     for(const other of affected){
       if(!inside(other))continue;
       const id=cellId(other),target=board[other.row][other.col];
-      if(target<0||target===CROWN||protect.has(id)||cleared.has(id))continue;
-      cleared.add(id);queue.push(id);
+      if(target<0||target===CROWN||cleared.has(id))continue;
+      cleared.add(id);
+      const bonus=created.get(id);
+      queue.push({id,value:bonus?specialValue(bonus.type,bonus.color):target,original:!bonus});
     }
   }
   return cleared;
@@ -225,10 +247,9 @@ function resolve(game, animation, preferred, firstClear) {
     if (!runs.length&&!forced) break;
     chain++;
     const created=forced?new Map():planSpecials(runs,chain===1?preferred:[]);
-    const protect=new Set(created.keys());
     const initial=forced??new Set(runs.flatMap(run=>run.cells.map(cellId)));
-    const cells=expandRemoval(game.board,initial,protect,chain===1?new Set(animation.consumed):new Set());
-    for(const id of protect)cells.delete(id);
+    const effects=chain===1?[...animation.effects]:[];
+    const cells=expandRemoval(game.board,initial,created,chain===1?new Set(animation.consumed):new Set(),effects);
     forced=null;
     const waveGain=cells.size + runs.reduce((n,run)=>n+(run.length>=5?5:run.length===4?2:0),0) + (chain>1?chain*2:0);
     gain += waveGain;
@@ -236,7 +257,7 @@ function resolve(game, animation, preferred, firstClear) {
       const [row,col]=key.split(',').map(Number);
       game.board[row][col]=EMPTY;
     }
-    for(const {cell,type,color} of created.values())game.board[cell.row][cell.col]=specialValue(type,color);
+    for(const [id,{cell,type,color}] of created)if(!cells.has(id))game.board[cell.row][cell.col]=specialValue(type,color);
     // Crown supply uses a real refill vacancy connected to a marked top entry.
     // A delivery never spawns its successor by itself: a later clear is required.
     let crownColumn=null;
@@ -263,7 +284,7 @@ function resolve(game, animation, preferred, firstClear) {
       game.board[deliveredAt.row][deliveredAt.col]=EMPTY;
       gravity(game.board,game.random,null,deliveryPaths);
     }
-    animation.steps.push({transformed:chain===1?animation.transformed:[],effects:chain===1?animation.effects:[],consumed:chain===1?animation.consumed:[],cleared:[...cells].map(key=>key.split(',').map(Number)),created:[...created.values()].map(({cell,type,color})=>({row:cell.row,col:cell.col,value:specialValue(type,color)})),spawned,gravityPaths,deliveryPaths,afterGravity,afterDelivery:snapshot(game.board),delivered,deliveredAt,wave:chain,gained:waveGain,runs:runs.map(run=>({length:run.length,cells:run.cells}))});
+    animation.steps.push({transformed:chain===1?animation.transformed:[],effects,consumed:chain===1?animation.consumed:[],cleared:[...cells].map(key=>key.split(',').map(Number)),created:[...created.values()].map(({cell,type,color})=>({row:cell.row,col:cell.col,value:specialValue(type,color)})),spawned,gravityPaths,deliveryPaths,afterGravity,afterDelivery:snapshot(game.board),delivered,deliveredAt,wave:chain,gained:waveGain,runs:runs.map(run=>({length:run.length,cells:run.cells}))});
   }
   game.grecha+=gain;
   game.lastGain=gain;
@@ -301,6 +322,11 @@ export function playSwap(game,a,b) {
         firstClear.add(`${row},${col}`);
       }
     }
+  } else if(ta===SPECIAL.BURST&&tb===SPECIAL.BURST){
+    firstClear=new Set([cellId(a),cellId(b)]);
+    animation.consumed=[cellId(a),cellId(b)];
+    for(let row=b.row-2;row<=b.row+2;row++)for(let col=b.col-2;col<=b.col+2;col++)add(firstClear,row,col);
+    animation.effects.push({type:'burst',row:b.row,col:b.col,radius:2});
   } else if((ray(ta)&&ray(tb))||(ray(ta)&&tb===SPECIAL.BURST)||(ray(tb)&&ta===SPECIAL.BURST)){
     firstClear=new Set([cellId(a),cellId(b)]);
     animation.consumed=[cellId(a),cellId(b)];

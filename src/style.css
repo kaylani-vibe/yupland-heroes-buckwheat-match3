@@ -31,3 +31,7 @@
 .piece.transforming .icon{animation:bonus-transform .32s ease-out}
 @keyframes bonus-transform{0%{filter:brightness(1);scale:.8}55%{filter:brightness(2);scale:1.15}100%{filter:brightness(1);scale:1}}
 @media(prefers-reduced-motion:reduce){.piece.transforming .icon{animation-duration:.05s}}
+
+.power-burst.super-burst{width:62.5%;height:50%;animation:super-burst .55s ease-out forwards}
+@keyframes super-burst{from{opacity:1;transform:scale(.2)}to{opacity:0;transform:scale(1.15)}}
+@media(prefers-reduced-motion:reduce){.power-burst.super-burst{animation-duration:.05s}}

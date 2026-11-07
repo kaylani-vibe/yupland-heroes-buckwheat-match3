@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,makeMask,playSwap,findHint,gravity,seededRandom,CROWN,EMPTY,STONE,ENTRY_COLS,ROWS,COLS} from './engine.mjs';
+import {createGame,makeMask,playSwap,canSwap,findHint,gravity,seededRandom,CROWN,EMPTY,STONE,ENTRY_COLS,ROWS,COLS} from './engine.mjs';
 
 function fixture(){
   const g=createGame(41);
@@ -53,6 +53,18 @@ test('an active crown prevents a second one at the other entry',()=>{
   const step=localMatch(g,2,4);assert.equal(step.spawned,null);assert.equal(count(step.afterGravity),1);
 });
 
+for(const col of [2,5])test(`neighbouring exit cell ${col} also delivers the crown`,()=>{
+  const g=fixture();g.board[8][col]=CROWN;
+  const start=col===2?1:4,swapped=col===2?3:6;
+  for(let c=start;c<start+3;c++)g.board[9][c]=0;
+  g.board[9][swapped]=1;g.board[8][swapped]=0;
+  assert.ok(playSwap(g,{row:8,col:swapped},{row:9,col:swapped}));
+  const first=g.lastAnimation.steps[0];
+  assert.equal(first.delivered,true);
+  assert.deepEqual(first.deliveredAt,{row:9,col});
+  assert.equal(g.crowns,1);
+});
+
 test('successor waits in an empty board until the next eligible match',()=>{
   const g=fixture();g.crowns=1;
   assert.equal(localMatch(g,0,2).spawned,null);
@@ -73,4 +85,32 @@ test('whole parties never have two active crowns or more than three supplied cro
       assert.equal(g.board.length,ROWS);assert.ok(g.board.every(row=>row.length===COLS));
     }
   }
+});
+
+for(const col of ENTRY_COLS)test(`swapping crown into exit ${col} completes the neighboring match and delivers`,()=>{
+  const g=fixture(), direction=col===1?1:-1;
+  g.board[8][col]=CROWN;g.board[9][col]=1;
+  g.board[8][col+direction]=1;g.board[8][col+direction*2]=1;
+  const a={row:8,col},b={row:9,col};
+  const before=structuredClone(g.board),moves=g.moves;
+  assert.equal(canSwap(g.board,a,b),true);
+  assert.deepEqual(g.board,before);
+  assert.equal(playSwap(g,a,b),true);
+  assert.equal(g.moves,moves-1);
+  const first=g.lastAnimation.steps[0];
+  assert.equal(first.delivered,true);
+  assert.deepEqual(first.deliveredAt,b);
+  assert.equal(first.spawned,null);
+  assert.equal(g.crowns,1);
+  assert.ok(!first.cleared.some(([row,c])=>row===9&&c===col));
+});
+
+test('crown swaps without a match, with obstacles or rainbow remain invalid and cost no moves',()=>{
+  const g=fixture();g.board[8][6]=CROWN;
+  const before=structuredClone(g.board),moves=g.moves;
+  assert.equal(playSwap(g,{row:8,col:6},{row:9,col:6}),false);
+  assert.deepEqual(g.board,before);assert.equal(g.moves,moves);
+  assert.equal(canSwap(g.board,{row:8,col:6},{row:8,col:7}),false);
+  g.board[9][6]=30;
+  assert.equal(canSwap(g.board,{row:8,col:6},{row:9,col:6}),false);
 });

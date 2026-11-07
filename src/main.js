@@ -1,31 +1,241 @@
 import './style.css';
 import './kingdom.css';
 import './screen.css';
-import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,STONE,HOLE,ENTRY_COLS,EXITS,SPECIAL,colorOf,specialType,createGame,playSwap} from './engine.mjs';
+import './start.css';
+import './evening.css';
+import './sound.css';
+import {titles,crownLabel,translate,localize} from './i18n.mjs';
+import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,STONE,HOLE,ENTRY_COLS,EXITS,SPECIAL,colorOf,specialType,createGame,playSwap,payout} from './engine.mjs';
 import {createInventory} from './inventory.mjs';
+import {createSoundPreview} from './sound-preview.mjs';
 
 // Keyed pieces and the remove/fall/refill sequence adapt PlayBoard.tsx from
 // the developer-supplied YupMatch archive (02 Nov 2026).
 const names=['гречневое зерно','колос','лист','ягоды','цветок','корона'];
 const app=document.querySelector('#app');
+const soundPreview=createSoundPreview();
 const previewBoard=createGame().board;
 let nextId=1,game=null,selected=null,pointerStart=null,ignoreClick=false,busy=false;
-let pieces=makePieces(previewBoard),bagOpen=false;
+let pieces=makePieces(previewBoard),bagOpen=false,exitOpen=false,soundOpen=false;
 const qaMode=import.meta.env.DEV&&[...new URLSearchParams(location.search).keys()].some(k=>k.startsWith('qa'));
 const inventory=createInventory(localStorage,qaMode?'buckwheat-match3:qa-crowns':'buckwheat-match3:crowns');
-const crownWord=n=>n%10===1&&n%100!==11?'корона':n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?'короны':'корон';
+const language=new URLSearchParams(location.search).get('lang')==='en'?'en':'ru';
+const tr=value=>translate(value,language);
+const crownWord=n=>crownLabel(n,language);
+const walletPreview = import.meta.env.DEV && new URLSearchParams(location.search).has('qaWallet');
+let walletConnected = walletPreview && new URLSearchParams(location.search).get('qaWallet') === 'connected';
+let currency = 'gold';
+let walletNotice = false;
+let rating = import.meta.env.DEV && new URLSearchParams(location.search).has('qaRating') ? 'grecha' : null;
+const paymentMethods = {
+  gold: { name: 'Золото', price: '100', initialBalance: 1250, multiplier: 1, action: 'Играть за 100 золота' },
+  crypto: { name: 'Darai', price: '100 000', initialBalance: 350000, multiplier: 1000, action: 'Играть за 100 000 Darai' },
+};
+
+const balanceKey=qaMode?'buckwheat-match3:qa-balances':'buckwheat-match3:balances';
+const balances=Object.fromEntries(Object.entries(paymentMethods).map(([key,method])=>[key,method.initialBalance]));
+try {
+  const saved=JSON.parse(localStorage.getItem(balanceKey));
+  for(const key of Object.keys(balances)){
+    if(Number.isSafeInteger(saved?.[key])&&saved[key]>=0)balances[key]=saved[key];
+  }
+}catch{}
+let balanceNotice=false;
+
+function updateBalance(key, amount) {
+  balances[key]+=amount;
+  try { localStorage.setItem(balanceKey,JSON.stringify(balances)); }catch{}
+}
+
+function settleRound(round) {
+  if(!round||round.settlement)return;
+  const {returned,net}=payout(round);
+  const {multiplier}=paymentMethods[round.entryCurrency];
+  round.settlement={net:net*multiplier};
+  updateBalance(round.entryCurrency,returned*multiplier);
+}
+
+function roundResult(round) {
+  const {net}=round.settlement;
+  const unit=round.entryCurrency==='crypto'?'Darai':language==='en'?'gold':'золота';
+  const label=net>0?(language==='en'?'Won':'Выигрыш'):
+    net<0?(language==='en'?'Spent':'Потрачено'):(language==='en'?'Break even':'Без потерь и выигрыша');
+  const sign=net>0?'+':net<0?'−':'';
+  return `<p class="result-saved round-result">${label} <b>${sign}${formatRating(Math.abs(net))} ${unit}</b></p>`;
+}
+
+function startWindow() {
+  const methods = walletConnected ? ['gold', 'crypto'] : ['gold'];
+  return `<div class="overlay start-overlay">
+    <section class="green-start" role="dialog" aria-modal="true" aria-labelledby="start-title">
+      <div class="start-content">
+        <h2 id="start-title">Верни короны</h2>
+        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+        <p class="start-goal">Опусти 3 короны за ${MOVES} ходов</p>
+        ${walletConnected
+          ? '<p class="wallet-status">Кошелёк подключён</p>'
+          : '<button class="start-secondary wallet-status" data-action="wallet">Подключить кошелёк</button>'}
+        ${walletNotice ? '<p class="wallet-notice" role="status">Подключение кошелька сейчас недоступно</p>' : ''}
+        ${balanceNotice ? `<p class="wallet-notice balance-notice" role="status">${language==='en'?'Insufficient balance':'Недостаточно средств для входа'}</p>` : ''}
+        <fieldset class="payment-methods" aria-label="Валюта входа">
+          ${methods.map(key => {
+            const method = paymentMethods[key];
+            return `<label class="payment-row">
+              <input type="radio" name="entry-currency" value="${key}" ${currency === key ? 'checked' : ''}>
+              <strong>${method.name}</strong>
+              <span><b>Вход ${method.price}</b><small>Баланс ${formatRating(balances[key])}</small></span>
+            </label>`;
+          }).join('')}
+        </fieldset>
+        <button class="primary start-play" data-action="start">${paymentMethods[currency].action}</button>
+        <div class="start-links">
+          <button class="start-secondary" data-action="bag"><span class="start-action-icon start-action-bag" aria-hidden="true"></span>Рюкзак</button>
+          <button class="start-secondary" data-action="rating"><span class="start-action-icon start-action-rating" aria-hidden="true"></span>Рейтинг</button>
+        </div>
+      </div>
+    </section>
+  </div>`;
+}
+
+function exitWindow() {
+  return `<div class="overlay start-overlay exit-overlay">
+    <section class="green-start green-exit" role="alertdialog" aria-modal="true" aria-labelledby="exit-title" aria-describedby="exit-message">
+      <div class="start-content exit-content">
+        <h2 id="exit-title">Выйти из игры?</h2>
+        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+        <p id="exit-message">Прогресс текущей партии будет потерян. Продолжить её позже не получится.</p>
+        <p class="exit-kept">${language==='en'?'Collected crowns will be paid out in your entry currency.':'За полученные короны начислится выплата в валюте входа.'}</p>
+        <button class="primary start-play" data-action="cancel-exit">Продолжить игру</button>
+        <button class="start-secondary exit-confirm" data-action="confirm-exit">Выйти</button>
+      </div>
+    </section>
+  </div>`;
+}
+
+function soundWindow() {
+  const settings=soundPreview.getSettings();
+  const effectsReady=soundPreview.hasEffects();
+  return `<div class="overlay sound-overlay">
+    <section class="sound-dialog" role="dialog" aria-modal="true" aria-labelledby="sound-title" tabindex="-1">
+      <button class="sound-close" data-action="close-sound" aria-label="Закрыть настройки звука">×</button>
+      <h2 id="sound-title">Звук</h2>
+      <div class="sound-channel">
+        <label class="sound-toggle"><span>Музыка</span><input type="checkbox" data-sound-toggle="musicEnabled" ${settings.musicEnabled?'checked':''}></label>
+        <div class="sound-slider-row"><input id="music-volume" class="sound-range" type="range" min="0" max="100" step="1" value="${settings.musicLevel}" style="--level:${settings.musicLevel}%" aria-label="Громкость музыки" data-sound-level="musicLevel"><output data-sound-output="musicLevel" for="music-volume">${settings.musicLevel}%</output></div>
+      </div>
+      <div class="sound-channel ${effectsReady?'':'sound-unavailable'}">
+        <label class="sound-toggle"><span>Эффекты${effectsReady?'':' <small class="sound-pending">скоро</small>'}</span><input type="checkbox" data-sound-toggle="effectsEnabled" ${effectsReady&&settings.effectsEnabled?'checked':''} ${effectsReady?'':'disabled'}></label>
+        <div class="sound-slider-row"><input id="effects-volume" class="sound-range" type="range" min="0" max="100" step="1" value="${effectsReady?settings.effectsLevel:0}" style="--level:${effectsReady?settings.effectsLevel:0}%" aria-label="Громкость эффектов" data-sound-level="effectsLevel" ${effectsReady?'':'disabled'}><output data-sound-output="effectsLevel" for="effects-volume">${effectsReady?`${settings.effectsLevel}%`:'—'}</output></div>
+      </div>
+    </section>
+  </div>`;
+}
+
+function resultWindow() {
+  const won = game.crowns >= TARGET_CROWNS;
+  const earned = game.crowns;
+  const slots = earned === 1 ? [false,true,false] : [0,1,2].map(i => i < earned);
+  return `<div class="overlay start-overlay result-overlay">
+    <section class="green-start green-result ${won ? 'result-won' : ''}" role="dialog" aria-modal="true" aria-labelledby="result-title">
+      <div class="start-content result-content">
+        <h2 id="result-title">${won ? 'Все короны<br>спасены!' : language==='en' ? 'Out of<br>moves' : 'Ходы<br>закончились'}</h2>
+        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+        <div class="result-crowns" aria-hidden="true">${slots.map(filled => `<div class="result-crown ${filled ? 'crown-earned' : 'crown-missing'}">${icon(CROWN)}</div>`).join('')}</div>
+        <p class="result-earned">${earned ? `${earned === 1 ? 'Получена' : 'Получено'} ${earned} ${crownWord(earned)}` : 'Короны не получены'}</p>
+        ${roundResult(game)}
+        <div class="result-grecha">${icon(0)}<span>Греча <b>${formatRating(game.grecha)}</b></span></div>
+        <button class="primary start-play" data-action="restart">${won ? 'Играть ещё' : 'Попробовать ещё'}</button>
+        <div class="start-links">
+          <button class="start-secondary" data-action="bag"><span class="start-action-icon start-action-bag" aria-hidden="true"></span>Рюкзак</button>
+          <button class="start-secondary" data-action="rating"><span class="start-action-icon start-action-rating" aria-hidden="true"></span>Рейтинг</button>
+        </div>
+      </div>
+    </section>
+  </div>`;
+}
+
+function bagWindow() {
+  const count = inventory.count();
+  return `<div class="overlay start-overlay bag-overlay">
+    <section class="green-start green-bag" role="dialog" aria-modal="true" aria-labelledby="bag-title">
+      <div class="start-content bag-content">
+        <h2 id="bag-title">Рюкзак</h2>
+        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+        <div class="bag-item" aria-label="${count} ${crownWord(count)}">
+          ${icon(CROWN)}<span class="bag-quantity" aria-hidden="true">×${count}</span>
+        </div>
+        <p class="bag-count">${count} ${crownWord(count)}</p>
+        <button class="primary start-play" data-action="close-bag">Вернуться</button>
+      </div>
+    </section>
+  </div>`;
+}
+
+// Preview rows are restricted to explicitly enabled local QA mode.
+const ratingPreview = [
+  {name:'Лесная фея',grecha:12480,crowns:96},
+  {name:'Гречневый рыцарь',grecha:11920,crowns:88},
+  {name:'Лис',grecha:10650,crowns:81},
+  {name:'Мира',grecha:9840,crowns:73},
+  {name:'Сокол',grecha:9120,crowns:65},
+];
+const formatRating = value => new Intl.NumberFormat(language==='en'?'en-US':'ru-RU').format(value);
+function ratingRow(player, place, own = false) {
+  return `<tr class="${own ? 'rating-own' : ''}">
+    <td class="rating-place"><span class="${place <= 3 ? `rank-medal rank-${place}` : ''}">${place}</span></td>
+    <th scope="row">${player.name}</th>
+    <td class="rating-score">${icon(rating === 'grecha' ? 0 : CROWN)}<span>${formatRating(player[rating])}</span></td>
+  </tr>`;
+}
+function ratingWindow() {
+  return `<div class="overlay start-overlay rating-overlay">
+    <section class="green-start green-rating" role="dialog" aria-modal="true" aria-labelledby="rating-title">
+      <div class="start-content rating-content">
+        <h2 id="rating-title">Рейтинг</h2>
+        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
+        <div class="rating-metrics" role="group" aria-label="Показатель рейтинга">
+          <button data-action="rating-grecha" aria-pressed="${rating === 'grecha'}">${icon(0)}Греча</button>
+          <button data-action="rating-crowns" aria-pressed="${rating === 'crowns'}">${icon(CROWN)}Короны</button>
+        </div>
+        <p class="rating-subtitle">${rating === 'grecha' ? 'По собранной грече' : 'По доставленным коронам'}</p>
+        <div class="rating-results" aria-live="polite">
+          ${qaMode ? `<table class="rating-table" aria-label="${rating === 'grecha' ? 'Рейтинг по грече' : 'Рейтинг по коронам'}">
+            <colgroup><col class="rating-place-column"><col><col class="rating-score-column"></colgroup><thead class="visually-hidden"><tr><th>Место</th><th>Игрок</th><th>Результат</th></tr></thead>
+            <tbody>${ratingPreview.map((player,i)=>ratingRow(player,i+1)).join('')}</tbody>
+            <tbody><tr class="rating-gap" aria-hidden="true"><td colspan="3">···</td></tr>
+            ${ratingRow({name:'Ты',grecha:3240,crowns:24},18,true)}</tbody>
+          </table>` : `<div class="rating-empty"><span class="start-action-icon start-action-rating" aria-hidden="true"></span><p>Рейтинг сейчас недоступен</p></div>`}
+        </div>
+        <button class="primary start-play" data-action="close-rating">Вернуться</button>
+      </div>
+    </section>
+  </div>`;
+}
+
 function newGame(){
   const next=createGame();
   if(import.meta.env.DEV){
-    const pair={ 'ray-ray':[15,21], 'ray-bomb':[15,26], 'rainbow-ray':[30,15], 'rainbow-bomb':[30,25] }[new URLSearchParams(location.search).get('qaCombo')];
+    const pair={ 'bomb-bomb':[25,28], 'ray-ray':[15,21], 'ray-bomb':[15,26], 'rainbow-ray':[30,15], 'rainbow-bomb':[30,25] }[new URLSearchParams(location.search).get('qaCombo')];
     if(pair){next.board[4][3]=pair[0];next.board[4][4]=pair[1];}
+    if(new URLSearchParams(location.search).get('qaCombo')==='created-arrow'){
+      next.board[2][1]=2;next.board[2][2]=25;next.board[2][3]=1;
+      next.board[2][4]=0;next.board[2][5]=0;next.board[2][6]=2;next.board[3][3]=0;
+    }
+    if(new URLSearchParams(location.search).get('qaCrown')==='swap-exit'){
+      next.board[8][6]=CROWN;
+      next.board[8][4]=1;next.board[8][5]=1;next.board[9][6]=1;
+    }
     if(new URLSearchParams(location.search).get('qaCrown')==='blocked'){
       next.board[4][6]=CROWN;
       next.board[5][3]=0;next.board[5][4]=0;next.board[5][5]=1;next.board[4][5]=0;
     }
   }
-  if(import.meta.env.DEV&&new URLSearchParams(location.search).get('qaResult')==='two'){
-    next.crowns=2;next.moves=0;next.finished=true;
+  if (import.meta.env.DEV) {
+    const result = new URLSearchParams(location.search).get('qaResult');
+    const crowns = {win:3, one:1, two:2, zero:0}[result];
+    if (crowns !== undefined) {
+      next.crowns=crowns;next.moves=0;next.grecha=crowns===3?631:240;next.finished=true;
+    }
   }
   return next;
 }
@@ -37,7 +247,7 @@ const specialGlyph={1:'↔',2:'↕',3:'✸',4:'★'};
 const pieceInner=p=>{const type=specialType(p.value),kind=type?colorOf(p.value):p.value;return `${type===SPECIAL.RAINBOW?'<span class="rainbow-art" aria-hidden="true">✦</span>':icon(kind)}${type?`<b class="power-mark">${specialGlyph[type]}</b>`:''}`;};
 const pieceMarkup=p=>`<span class="piece ${p.value===CROWN?'royal':''} ${specialType(p.value)?'powered':''}" data-id="${p.id}" style="transform:translate(${p.col*100}%,${p.row*100}%)">${pieceInner(p)}</span>`;
 const routeArrow='<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M14 3h12v16h10L20 37 4 19h10z"/></svg>';
-const routeMarkers=()=>ENTRY_COLS.map(col=>`<span class="route-marker entry-route" style="--col:${col}">${routeArrow}</span><span class="route-marker exit-route" style="--col:${col}">${routeArrow}</span>`).join('');
+const routeMarkers=()=>`${ENTRY_COLS.map(col=>`<span class="route-marker entry-route" style="--col:${col}">${routeArrow}</span>`).join('')}${EXITS.map(({col})=>`<span class="route-marker exit-route" style="--col:${col}">${routeArrow}</span>`).join('')}`;
 function cellMarkup(value,row,col){
   if(value===HOLE)return '<span class="cell hole edge-chest" aria-label="Деревянный сундук"><span class="chest" aria-hidden="true"></span></span>';
   if(value===STONE)return '<span class="cell stone" aria-label="Неподвижный камень"><span class="rock"></span></span>';
@@ -50,27 +260,43 @@ function render(){
   const started=!!game,finished=game?.finished,board=game?.board??previewBoard;
   const crowns=game?.crowns??0;
   app.innerHTML=`<main class="shell">
-    <div class="ambience" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <nav class="game-topbar" aria-label="Выход из игры и звук">
+      <button class="exit-game" data-action="exit-game"><svg viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M13 4 1 16l12 12v-7h17V11H13V4Z"/></svg><span>Выйти</span></button>
+      <button class="sound-open" data-action="sound" aria-label="Настройки звука" aria-haspopup="dialog" aria-expanded="${soundOpen}"><svg viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M3 12h5l8-7v22l-8-7H3z"/><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" d="M21 11c3 3 3 7 0 10m4-14c5 5 5 13 0 18"/></svg></button>
+    </nav>
     <header class="masthead">
-      <span class="lantern-halo left" aria-hidden="true"></span><span class="lantern-halo right" aria-hidden="true"></span>
-      <img class="canopy-art" src="${import.meta.env.BASE_URL}art/kingdom-header.png?v=compact-20261104" alt="" width="2172" height="724" draggable="false">
-      <h1>Корона гречневого<br>королевства</h1>
+      <h1 aria-label="${titles[language].join(' ')}">
+        <svg class="curved-title" viewBox="0 0 500 112" aria-hidden="true">
+          <defs><path id="title-top" d="M 5 51 Q 250 43 495 51"/><path id="title-bottom" d="M 5 96 Q 250 88 495 96"/></defs>
+          <text class="title-line-one"><textPath href="#title-top" startOffset="50%" text-anchor="middle">${titles[language][0]}</textPath></text>
+          <text class="title-line-two"><textPath href="#title-bottom" startOffset="50%" text-anchor="middle">${titles[language][1]}</textPath></text>
+        </svg>
+      </h1>
+      <img class="title-flower" src="${import.meta.env.BASE_URL}art/start-divider.png" alt="">
     </header>
-    <section class="game-panel" aria-label="Игровая партия">
+    <section class="game-panel" aria-label="Игровая партия" ${!started || finished || rating || bagOpen ? 'inert' : ''}>
       <div class="mission-row">
-        <div class="mission-plaque">${icon(CROWN)}<p>Опусти <b>3 короны</b> к выходу</p></div>
+        <div class="mission-plaque"><p aria-label="${language === 'en' ? 'Bring 3 crowns to the exits' : 'Опусти 3 короны к выходу'}">Опусти <b>3</b> ${icon(CROWN)} к выходу</p></div>
         <div class="stat moves-stat"><span class="stat-label">Ходы</span><strong class="moves-count">${started?game.moves:MOVES}</strong></div>
       </div>
-      <div class="journey-strip"><div class="crown-tally" aria-label="Доставлено корон: ${crowns} из 3">${icon(CROWN)}<b>${crowns}<span> / ${TARGET_CROWNS}</span></b></div><span class="status-divider" aria-hidden="true"></span><div class="grecha-tally">${icon(0)}<span>Греча <b>${game?.grecha??0}</b></span></div></div>
+      <div class="journey-strip"><div class="crown-tally" aria-label="Доставлено корон: ${crowns} из 3">${icon(CROWN)}<b>${crowns}<span> / ${TARGET_CROWNS}</span></b></div>${started && !finished ? '<button class="journey-rating" data-action="rating" aria-label="Открыть рейтинг" title="Рейтинг"><span class="start-action-icon start-action-rating" aria-hidden="true"></span></button>' : '<span class="status-divider" aria-hidden="true"></span>'}<div class="grecha-tally">${icon(0)}<span>Греча <b>${game?.grecha??0}</b></span></div></div>
       <div class="board-area"><div class="board-frame">
         <img class="board-art" src="${import.meta.env.BASE_URL}art/kingdom-frame.png?v=compact-20261104" alt="" draggable="false">
         <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div></div><div class="route-layer" aria-hidden="true">${routeMarkers()}</div>
       </div></div>
     </section>
-    ${!started?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>Верни короны</h2><p>Освобождай место под верхними стрелками.<br>Опусти три короны за ${MOVES} ходов.</p><div class="entry-price">Вход <b>100 золота</b></div><button class="primary" data-action="start">Начать партию</button><button class="bag-link" data-action="bag">Рюкзак · ${inventory.count()} ${crownWord(inventory.count())}</button></div></div>`:''}
-    ${finished?`<div class="overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><span class="dialog-eyebrow">Гречневое королевство</span><h2>Получено<br>${game.crowns} ${crownWord(game.crowns)}</h2><p>Греча: <b>${game.grecha}</b></p><button class="primary" data-action="restart">Играть ещё</button><button class="bag-link" data-action="bag">Открыть рюкзак</button></div></div>`:''}
-    ${bagOpen?`<div class="overlay bag-overlay"><div class="dialog"><div class="dialog-crown">${icon(CROWN)}</div><h2>Рюкзак</h2><p class="inventory-count">${inventory.count()} ${crownWord(inventory.count())}</p><button class="primary" data-action="close-bag">Вернуться</button></div></div>`:''}
+    ${!started && !bagOpen && !rating ? startWindow() : ''}
+    ${finished && !bagOpen && !rating ? resultWindow() : ''}
+    ${bagOpen ? bagWindow() : ''}
+    ${rating ? ratingWindow() : ''}
+    ${exitOpen ? exitWindow() : ''}
+    ${soundOpen ? soundWindow() : ''}
   </main>`;
+  document.documentElement.lang=language;
+  document.title=`${titles[language].join(' ')} — Yupland Heroes`;
+  localize(app,language);
+  if(exitOpen)for(const child of app.querySelector('.shell').children)if(!child.classList.contains('exit-overlay'))child.inert=true;
+  if(soundOpen)for(const child of app.querySelector('.shell').children)if(!child.classList.contains('sound-overlay'))child.inert=true;
 }
 const layer=()=>app.querySelector('.piece-layer');
 const effectLayer=()=>app.querySelector('.effect-layer');
@@ -80,12 +306,16 @@ function addPiece(p){layer()?.insertAdjacentHTML('beforeend',pieceMarkup(p));}
 function removePiece(p){nodeFor(p)?.remove();pieces=pieces.filter(q=>q.id!==p.id);}
 const pieceAt=(row,col)=>pieces.find(p=>p.row===row&&p.col===col);
 function flash(cells,wave,runs,effects=[],consumed=[]){
+  soundPreview.cue(wave>1 || effects.length || runs.some(run=>run.length>=4) ? 'combo' : 'match',wave);
   const fx=effectLayer();if(!fx)return;
   fx.innerHTML=cells.map(([row,col])=>`<i class="impact" style="--x:${col};--y:${row}"></i>`).join('');
   for(const [row,col] of cells){if(consumed.includes(`${row},${col}`))continue;const type=specialType(pieceAt(row,col)?.value);if(type===SPECIAL.RAY_H||type===SPECIAL.RAY_V)fx.insertAdjacentHTML('beforeend',`<i class="match-beam ${type===SPECIAL.RAY_H?'horizontal':'vertical'}" style="--x:${type===SPECIAL.RAY_H?0:col};--y:${type===SPECIAL.RAY_H?row:0};--span:${type===SPECIAL.RAY_H?COLS:ROWS}"></i>`);if(type===SPECIAL.BURST||type===SPECIAL.RAINBOW)fx.insertAdjacentHTML('beforeend',`<i class="power-burst" style="--x:${col};--y:${row}"></i>`);}
-  for(const effect of effects)fx.insertAdjacentHTML('beforeend',`<i class="match-beam ${effect.type==='h'?'horizontal':'vertical'}" style="--x:${effect.col};--y:${effect.row};--span:${effect.type==='h'?COLS:ROWS}"></i>`);
+  for(const effect of effects){
+    if(effect.type==='burst')fx.insertAdjacentHTML('beforeend',`<i class="power-burst super-burst" style="--x:${effect.col-2};--y:${effect.row-2}"></i>`);
+    else fx.insertAdjacentHTML('beforeend',`<i class="match-beam ${effect.type==='h'?'horizontal':'vertical'}" style="--x:${effect.col};--y:${effect.row};--span:${effect.type==='h'?COLS:ROWS}"></i>`);
+  }
   for(const run of runs)if(run.length>=4){const first=run.cells[0],last=run.cells.at(-1);fx.insertAdjacentHTML('beforeend',`<i class="match-beam ${first.row===last.row?'horizontal':'vertical'}" style="--x:${first.col};--y:${first.row};--span:${run.length}"></i>`);}
-  if(wave>1)fx.insertAdjacentHTML('beforeend',`<span class="combo-pop">Каскад ×${wave}</span>`);
+  if(wave>1)fx.insertAdjacentHTML('beforeend',`<span class="combo-pop">${tr(`Каскад ×${wave}`)}</span>`);
   setTimeout(()=>{if(fx.isConnected)fx.innerHTML='';},600);
 }
 async function collapseTo(paths){
@@ -115,6 +345,7 @@ async function collapseTo(paths){
     updatePositions();await wait(duration);
   }
   for(const {p} of moving){const el=nodeFor(p);if(el)el.style.removeProperty('transition-duration');}
+  if(moving.length)soundPreview.cue('land');
 }
 
 async function animateSwap(a,b){
@@ -131,6 +362,7 @@ async function performSwap(a,b){
     for(const change of step.transformed??[]){const p=pieceAt(change.row,change.col);if(p){p.value=change.value;const el=nodeFor(p);if(el){el.classList.add('powered','transforming');el.innerHTML=pieceInner(p);}}}
     if(step.transformed?.length){await wait(320);for(const p of pieces)nodeFor(p)?.classList.remove('transforming');}
     for(const created of step.created){const p=pieceAt(created.row,created.col);if(p){p.value=created.value;const el=nodeFor(p);if(el){el.classList.add('powered');el.innerHTML=pieceInner(p);}}}
+    if(step.created.some(p=>step.cleared.some(([r,c])=>r===p.row&&c===p.col)))await wait(170);
     flash(step.cleared,step.wave,step.runs,step.effects,step.consumed);
     for(const [row,col] of step.cleared)nodeFor(pieceAt(row,col))?.classList.add('dying');
     await wait(230);
@@ -138,12 +370,13 @@ async function performSwap(a,b){
     await collapseTo(step.gravityPaths);
     if(step.delivered){
       const crown=pieceAt(step.deliveredAt.row,step.deliveredAt.col);
-      if(crown){nodeFor(crown)?.classList.add('delivered');effectLayer()?.insertAdjacentHTML('beforeend','<span class="crown-pop">+50 золота</span>');await wait(400);removePiece(crown);}
+      if(crown){nodeFor(crown)?.classList.add('delivered');effectLayer()?.insertAdjacentHTML('beforeend',`<span class="crown-pop">+1 ${crownWord(1)}</span>`);await wait(400);removePiece(crown);}
       await collapseTo(step.deliveryPaths);
     }
   }
   if(game.lastAnimation.shuffled){layer()?.classList.add('shuffling');await wait(230);pieces=makePieces(game.board);layer().innerHTML=pieces.map(pieceMarkup).join('');layer()?.classList.remove('shuffling');await wait(230);}
-  inventory.collect(game);busy=false;render();
+  if(game.finished)settleRound(game);
+  busy=false;render();
 }
 function choose(row,col){
   if(!game||game.finished||busy)return;
@@ -154,20 +387,126 @@ function choose(row,col){
   if(Math.abs(a.row-row)+Math.abs(a.col-col)!==1){selected=target;render();return;}
   void performSwap(a,target);
 }
+app.addEventListener('change', event => {
+  const toggle=event.target.dataset.soundToggle;
+  if(toggle){soundPreview.setSettings({[toggle]:event.target.checked});return;}
+  if (event.target.name !== 'entry-currency') return;
+  currency = event.target.value;
+  balanceNotice=false;
+  app.querySelector('.balance-notice')?.remove();
+  app.querySelector('.start-play').textContent = tr(paymentMethods[currency].action);
+});
+
+app.addEventListener('input',event=>{
+  const level=event.target.dataset.soundLevel;
+  if(!level)return;
+  const value=Number(event.target.value);
+  soundPreview.setSettings({[level]:value});
+  event.target.style.setProperty('--level',`${value}%`);
+  app.querySelector(`[data-sound-output="${level}"]`).textContent=`${value}%`;
+});
+
 app.addEventListener('click',event=>{
   const action=event.target.closest('[data-action]')?.dataset.action;
-  if(action==='bag'){bagOpen=true;render();return;}
-  if(action==='close-bag'){bagOpen=false;render();return;}
-  if(action){game=newGame();inventory.collect(game);pieces=makePieces(game.board);selected=null;busy=false;bagOpen=false;render();return;}
+  if (busy) return;
+  if(action==='sound'){soundOpen=true;render();app.querySelector('.sound-dialog').focus();return;}
+  if(action==='close-sound'||event.target.classList.contains('sound-overlay')){soundOpen=false;render();app.querySelector('[data-action="sound"]').focus();return;}
+  if(soundOpen)return;
+  if(action==='exit-game'){
+    exitOpen=true;pointerStart=null;render();app.querySelector('[data-action="cancel-exit"]').focus();return;
+  }
+  if(action==='cancel-exit'){
+    exitOpen=false;render();app.querySelector('[data-action="exit-game"]').focus();return;
+  }
+  if(action==='confirm-exit'){
+    settleRound(game);
+    soundPreview.stop();
+    game=null;pieces=makePieces(previewBoard);selected=null;pointerStart=null;
+    bagOpen=false;rating=null;exitOpen=false;render();app.querySelector('[data-action="start"]').focus();return;
+  }
+  if (action === 'wallet') {
+    if (walletPreview) walletConnected = true;
+    else walletNotice = true;
+    render();
+    return;
+  }
+  if (action === 'rating' || action === 'rating-grecha' || action === 'rating-crowns') {
+    rating = action === 'rating-crowns' ? 'crowns' : 'grecha';
+    render();
+    app.querySelector(`.rating-metrics [data-action="rating-${rating}"]`).focus();
+    return;
+  }
+  if (action === 'close-rating') { rating = null; render(); app.querySelector('[data-action="rating"]')?.focus(); return; }
+  if(action==='bag'){bagOpen=true;render();app.querySelector('[data-action="close-bag"]').focus();return;}
+  if(action==='close-bag'){bagOpen=false;render();app.querySelector('[data-action="bag"]')?.focus();return;}
+  if(action==='restart'){soundPreview.stop();game=null;pieces=makePieces(previewBoard);selected=null;render();return;}
+  if(action==='start'){
+    const key=currency==='crypto'&&walletConnected?'crypto':'gold';
+    const next=newGame();
+    const entry=payout(next).entry*paymentMethods[key].multiplier;
+    if(balances[key]<entry){balanceNotice=true;render();return;}
+    balanceNotice=false;
+    next.entryCurrency=key;
+    updateBalance(key,-entry);
+    game=next;
+    if(game.finished)settleRound(game);
+    soundPreview.start();
+    pieces=makePieces(game.board);selected=null;busy=false;bagOpen=false;render();return;
+  }
   if(ignoreClick){ignoreClick=false;return;}
   const cell=event.target.closest('.gem');if(cell)choose(Number(cell.dataset.row),Number(cell.dataset.col));
 });
 app.addEventListener('pointerdown',event=>{const cell=event.target.closest('.gem');pointerStart=cell?{row:Number(cell.dataset.row),col:Number(cell.dataset.col),x:event.clientX,y:event.clientY}:null;});
 app.addEventListener('pointerup',event=>{
-  if(!pointerStart||!game||game.finished||busy)return;
+  if(!pointerStart||!game||game.finished||busy||rating)return;
   const origin=pointerStart;pointerStart=null;const dx=event.clientX-origin.x,dy=event.clientY-origin.y;
   if(Math.max(Math.abs(dx),Math.abs(dy))<18)return;
   const to=Math.abs(dx)>Math.abs(dy)?{row:origin.row,col:origin.col+Math.sign(dx)}:{row:origin.row+Math.sign(dy),col:origin.col};
   ignoreClick=true;setTimeout(()=>{ignoreClick=false;},0);void performSwap(origin,to);
 });
 render();
+
+app.addEventListener('keydown', event => {
+  if(soundOpen){
+    if(event.key==='Escape'){soundOpen=false;render();app.querySelector('[data-action="sound"]').focus();}
+    else if(event.key==='Tab'){
+      const controls=[...app.querySelectorAll('.sound-dialog input,.sound-dialog button')];
+      const i=controls.indexOf(document.activeElement);
+      if(event.shiftKey&&i<=0){event.preventDefault();controls.at(-1).focus();}
+      else if(!event.shiftKey&&(i===controls.length-1||i===-1)){event.preventDefault();controls[0].focus();}
+    }
+    return;
+  }
+  if(exitOpen){
+    if(event.key==='Escape'){exitOpen=false;render();app.querySelector('[data-action="exit-game"]').focus();}
+    else if(event.key==='Tab'){
+      const buttons=[...app.querySelectorAll('.green-exit button')];
+      const i=buttons.indexOf(document.activeElement);
+      if(event.shiftKey&&i<=0){event.preventDefault();buttons.at(-1).focus();}
+      else if(!event.shiftKey&&(i===buttons.length-1||i===-1)){event.preventDefault();buttons[0].focus();}
+    }
+    return;
+  }
+  if (bagOpen) {
+    if (event.key === 'Escape') { bagOpen = false; render(); app.querySelector('[data-action="bag"]')?.focus(); }
+    else if (event.key === 'Tab') { event.preventDefault(); app.querySelector('[data-action="close-bag"]').focus(); }
+    return;
+  }
+  if (!rating && game?.finished && event.key === 'Tab') {
+    const controls = [...app.querySelectorAll('.green-result button')];
+    const index = controls.indexOf(document.activeElement);
+    if (event.shiftKey && index <= 0) { event.preventDefault(); controls.at(-1)?.focus(); }
+    else if (!event.shiftKey && (index === controls.length - 1 || index === -1)) { event.preventDefault(); controls[0]?.focus(); }
+    return;
+  }
+  if (!rating) return;
+  if (event.key === 'Escape') {
+    rating = null; render(); app.querySelector('[data-action="rating"]')?.focus(); return;
+  }
+  if (event.key === 'Tab') {
+    const controls = [...app.querySelectorAll('.green-rating button')];
+    const index = controls.indexOf(document.activeElement);
+    if (event.shiftKey && index <= 0) { event.preventDefault(); controls.at(-1).focus(); }
+    else if (!event.shiftKey && (index === controls.length - 1 || index === -1)) { event.preventDefault(); controls[0].focus(); }
+  }
+});

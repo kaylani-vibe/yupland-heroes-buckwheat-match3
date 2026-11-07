@@ -12,6 +12,15 @@ test('a crown rolls diagonally around a fixed stone into a blocked cavity',()=>{
   assert.deepEqual(route.from,{row:2,col:1});assert.deepEqual(route.path,[{row:2,col:1},{row:3,col:2}]);
 });
 
+test('a crown takes the gap left by a falling neighbour before that column refills',()=>{
+  const board=solid(),paths=[];
+  board[2][1]=CROWN;board[3][1]=STONE;board[4][1]=STONE;
+  board[2][0]=3;board[3][0]=2;board[4][0]=EMPTY;
+  gravity(board,seededRandom(1),null,paths);
+  assert.equal(board[3][0],CROWN);
+  assert.deepEqual(paths.find(p=>p.value===CROWN).path,[{row:2,col:1},{row:3,col:0}]);
+});
+
 for(const [col,side] of [[1,2],[6,5]])test(`crown above obstacle ${col} takes an adjacent cleared cell before its neighbour refills it`,()=>{
   const board=solid(),paths=[];
   board[4][col]=CROWN;board[5][col]=STONE;board[6][col]=STONE;board[5][side]=EMPTY;
@@ -68,8 +77,8 @@ test('gravity routes reconstruct every cascade without missing or duplicating a 
       };
       for(const step of game.lastAnimation.steps){
         for(const p of step.transformed)visual[p.row][p.col]=p.value;
-        for(const [r,c] of step.cleared)visual[r][c]=EMPTY;
         for(const p of step.created)visual[p.row][p.col]=p.value;
+        for(const [r,c] of step.cleared)visual[r][c]=EMPTY;
         apply(step.gravityPaths);assert.deepEqual(visual,step.afterGravity);
         if(step.delivered){visual[step.deliveredAt.row][step.deliveredAt.col]=EMPTY;apply(step.deliveryPaths);}
         assert.deepEqual(visual,step.afterDelivery);assert.ok(visual.flat().every(v=>v!==EMPTY));
