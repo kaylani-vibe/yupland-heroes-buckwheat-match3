@@ -17,7 +17,7 @@ const soundPreview=createSoundPreview();
 const previewBoard=createGame().board;
 let nextId=1,game=null,selected=null,pointerStart=null,ignoreClick=false,busy=false;
 let finale=null;
-let pieces=makePieces(previewBoard),bagOpen=false,exitOpen=false,soundOpen=false;
+let pieces=makePieces(previewBoard),exitOpen=false,soundOpen=false;
 const qaMode=import.meta.env.DEV&&[...new URLSearchParams(location.search).keys()].some(k=>k.startsWith('qa'));
 const inventory=createInventory(localStorage,qaMode?'buckwheat-match3:qa-crowns':'buckwheat-match3:crowns');
 const language=new URLSearchParams(location.search).get('lang')==='en'?'en':'ru';
@@ -32,6 +32,25 @@ const paymentMethods = {
   gold: { name: 'Золото', price: '100', initialBalance: 1250, multiplier: 1, action: 'Играть за 100 золота' },
   crypto: { name: 'Darai', price: '100 000', initialBalance: 350000, multiplier: 1000, action: 'Играть за 100 000 Darai' },
 };
+
+const grechaRecordKey=qaMode?'buckwheat-match3:qa-grecha-record':'buckwheat-match3:grecha-record';
+let grechaRecord=null;
+
+function readGrechaRecord() {
+  try {
+    const stored=localStorage.getItem(grechaRecordKey);
+    const score=Number(stored);
+    return stored!==null&&Number.isSafeInteger(score)&&score>=0?score:null;
+  }catch{return null;}
+}
+
+function recordGrecha(round) {
+  if(!round.finished)return;
+  const previous=readGrechaRecord();
+  grechaRecord=Math.max(round.grecha,grechaRecord??0,previous??0);
+  if(previous===grechaRecord)return;
+  try{localStorage.setItem(grechaRecordKey,String(grechaRecord));}catch{}
+}
 
 const balanceKey=qaMode?'buckwheat-match3:qa-balances':'buckwheat-match3:balances';
 const balances=Object.fromEntries(Object.entries(paymentMethods).map(([key,method])=>[key,method.initialBalance]));
@@ -50,10 +69,12 @@ function updateBalance(key, amount) {
 
 function settleRound(round) {
   if(!round||round.settlement)return;
-  const {returned,net}=payout(round);
+  const {returned}=payout(round);
   const {multiplier}=paymentMethods[round.entryCurrency];
-  round.settlement={net:net*multiplier};
-  updateBalance(round.entryCurrency,returned*multiplier);
+  const amount=returned*multiplier;
+  round.settlement={amount};
+  updateBalance(round.entryCurrency,amount);
+  recordGrecha(round);
 }
 
 function startWindow() {
@@ -81,7 +102,6 @@ function startWindow() {
         </fieldset>
         <button class="primary start-play" data-action="start">${paymentMethods[currency].action}</button>
         <div class="start-links">
-          <button class="start-secondary" data-action="bag"><span class="start-action-icon start-action-bag" aria-hidden="true"></span>Рюкзак</button>
           <button class="start-secondary" data-action="rating"><span class="start-action-icon start-action-rating" aria-hidden="true"></span>Рейтинг</button>
         </div>
       </div>
@@ -128,10 +148,10 @@ const emptyCrown = '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M12 53 
 function resultWindow() {
   const earned = game.crowns;
   const won = earned === TARGET_CROWNS;
-  const {net} = game.settlement;
+  const payoutAmount = game.settlement.amount;
   const unit = game.entryCurrency === 'crypto' ? 'Darai' : language === 'en' ? 'gold' : 'золота';
-  const label = net < 0 ? 'Потрачено за игру' : 'Ваш выигрыш';
-  const amount = `${net > 0 ? '+' : ''}${formatRating(Math.abs(net))} ${unit}`;
+  const label = 'Ваш выигрыш';
+  const amount = `${formatRating(payoutAmount)} ${unit}`;
   const slots = earned === 1 ? [false,true,false] : Array.from({length:TARGET_CROWNS},(_,i)=>i<earned);
   return `<div class="overlay start-overlay result-overlay">
     <section class="green-start green-result ${won ? 'result-won' : ''}" role="dialog" aria-modal="true" aria-labelledby="result-title" tabindex="-1">
@@ -153,40 +173,29 @@ function resultWindow() {
   </div>`;
 }
 
-function bagWindow() {
-  const count = inventory.count();
-  return `<div class="overlay start-overlay bag-overlay">
-    <section class="green-start green-bag" role="dialog" aria-modal="true" aria-labelledby="bag-title">
-      <div class="start-content bag-content">
-        <h2 id="bag-title">Рюкзак</h2>
-        <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
-        <div class="bag-item" aria-label="${count} ${crownWord(count)}">
-          ${icon(CROWN)}<span class="bag-quantity" aria-hidden="true">×${count}</span>
-        </div>
-        <p class="bag-count">${count} ${crownWord(count)}</p>
-        <button class="primary start-play" data-action="close-bag">Вернуться</button>
-      </div>
-    </section>
-  </div>`;
-}
-
 // Preview rows are restricted to explicitly enabled local QA mode.
 const ratingPreview = [
-  {name:'Лесная фея',grecha:12480,crowns:96},
-  {name:'Гречневый рыцарь',grecha:11920,crowns:88},
-  {name:'Лис',grecha:10650,crowns:81},
-  {name:'Мира',grecha:9840,crowns:73},
-  {name:'Сокол',grecha:9120,crowns:65},
+  {name:'Лесная фея',bestGrecha:690,crowns:96},
+  {name:'Гречневый рыцарь',bestGrecha:765,crowns:88},
+  {name:'Лис',bestGrecha:708,crowns:81},
+  {name:'Мира',bestGrecha:588,crowns:73},
+  {name:'Сокол',bestGrecha:540,crowns:65},
 ];
 const formatRating = value => new Intl.NumberFormat(language==='en'?'en-US':'ru-RU').format(value);
 function ratingRow(player, place, own = false) {
   return `<tr class="${own ? 'rating-own' : ''}">
     <td class="rating-place"><span class="${place <= 3 ? `rank-medal rank-${place}` : ''}">${place}</span></td>
     <th scope="row">${player.name}</th>
-    <td class="rating-score">${icon(rating === 'grecha' ? 0 : CROWN)}<span>${formatRating(player[rating])}</span></td>
+    <td class="rating-score">${icon(rating === 'grecha' ? 0 : CROWN)}<span>${formatRating(rating === 'grecha' ? player.bestGrecha : player.crowns)}</span></td>
   </tr>`;
 }
 function ratingWindow() {
+  const byGrecha=rating==='grecha';
+  const savedRecord=byGrecha?readGrechaRecord():null;
+  const record=grechaRecord===null?savedRecord:Math.max(grechaRecord,savedRecord??0);
+  const players=[...ratingPreview];
+  if(byGrecha&&record!==null)players.push({name:'Ты',bestGrecha:record,own:true});
+  players.sort(byGrecha?(a,b)=>b.bestGrecha-a.bestGrecha:(a,b)=>b.crowns-a.crowns);
   return `<div class="overlay start-overlay rating-overlay">
     <section class="green-start green-rating" role="dialog" aria-modal="true" aria-labelledby="rating-title">
       <div class="start-content rating-content">
@@ -196,14 +205,14 @@ function ratingWindow() {
           <button data-action="rating-grecha" aria-pressed="${rating === 'grecha'}">${icon(0)}Греча</button>
           <button data-action="rating-crowns" aria-pressed="${rating === 'crowns'}">${icon(CROWN)}Короны</button>
         </div>
-        <p class="rating-subtitle">${rating === 'grecha' ? 'По собранной грече' : 'По доставленным коронам'}</p>
+        <p class="rating-subtitle">${byGrecha ? 'Лучшая партия по грече' : 'По доставленным коронам'}</p>
         <div class="rating-results" aria-live="polite">
           ${qaMode ? `<table class="rating-table" aria-label="${rating === 'grecha' ? 'Рейтинг по грече' : 'Рейтинг по коронам'}">
-            <colgroup><col class="rating-place-column"><col><col class="rating-score-column"></colgroup><thead class="visually-hidden"><tr><th>Место</th><th>Игрок</th><th>Результат</th></tr></thead>
-            <tbody>${ratingPreview.map((player,i)=>ratingRow(player,i+1)).join('')}</tbody>
-            <tbody><tr class="rating-gap" aria-hidden="true"><td colspan="3">···</td></tr>
-            ${ratingRow({name:'Ты',grecha:3240,crowns:24},18,true)}</tbody>
-          </table>` : `<div class="rating-empty"><span class="start-action-icon start-action-rating" aria-hidden="true"></span><p>Рейтинг сейчас недоступен</p></div>`}
+            <colgroup><col class="rating-place-column"><col><col class="rating-score-column"></colgroup><thead class="visually-hidden"><tr><th>Место</th><th>Игрок</th><th>${byGrecha ? 'Рекорд за партию' : 'Результат'}</th></tr></thead>
+            <tbody>${players.map((player,i)=>ratingRow(player,i+1,player.own)).join('')}</tbody>
+            ${byGrecha ? '' : `<tbody><tr class="rating-gap" aria-hidden="true"><td colspan="3">···</td></tr>
+            ${ratingRow({name:'Ты',crowns:24},18,true)}</tbody>`}
+          </table>` : `<div class="rating-empty"><span class="start-action-icon start-action-rating" aria-hidden="true"></span><p>Рейтинг сейчас недоступен</p>${byGrecha&&record!==null?`<p><span>Твой рекорд за партию</span> <b>${formatRating(record)}</b></p>`:''}</div>`}
         </div>
         <button class="primary start-play" data-action="close-rating">Вернуться</button>
       </div>
@@ -288,7 +297,7 @@ function render(){
       </h1>
       <img class="title-flower" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
     </header>
-    <section class="game-panel" aria-label="Игровая партия" ${!started || finished || rating || bagOpen ? 'inert' : ''}>
+    <section class="game-panel" aria-label="Игровая партия" ${!started || finished || rating ? 'inert' : ''}>
       <div class="mission-row">
         <div class="mission-plaque"><p aria-label="${language === 'en' ? 'Bring 3 crowns to the exits' : 'Опусти 3 короны к выходу'}">Опусти <b>3</b> ${icon(CROWN)} к выходу</p></div>
         <div class="stat moves-stat"><span class="stat-label">Ходы</span><strong class="moves-count">${started?game.moves:MOVES}</strong></div>
@@ -299,9 +308,8 @@ function render(){
         <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div></div><div class="route-layer" aria-hidden="true">${routeMarkers()}</div>
       </div></div>
     </section>
-    ${!started && !bagOpen && !rating ? startWindow() : ''}
-    ${finished && !bagOpen && !rating ? resultWindow() : ''}
-    ${bagOpen ? bagWindow() : ''}
+    ${!started && !rating ? startWindow() : ''}
+    ${finished && !rating ? resultWindow() : ''}
     ${rating ? ratingWindow() : ''}
     ${exitOpen ? exitWindow() : ''}
     ${soundOpen ? soundWindow() : ''}
@@ -570,7 +578,7 @@ app.addEventListener('click',event=>{
     settleRound(game);
     soundPreview.stop();
     game=null;pieces=makePieces(previewBoard);selected=null;pointerStart=null;
-    bagOpen=false;rating=null;exitOpen=false;render();app.querySelector('[data-action="start"]').focus();return;
+    rating=null;exitOpen=false;render();app.querySelector('[data-action="start"]').focus();return;
   }
   if (action === 'wallet') {
     if (walletPreview) walletConnected = true;
@@ -585,8 +593,6 @@ app.addEventListener('click',event=>{
     return;
   }
   if (action === 'close-rating') { rating = null; render(); app.querySelector('[data-action="rating"]')?.focus(); return; }
-  if(action==='bag'){bagOpen=true;render();app.querySelector('[data-action="close-bag"]').focus();return;}
-  if(action==='close-bag'){bagOpen=false;render();app.querySelector('[data-action="bag"]')?.focus();return;}
   if(action==='restart'){soundPreview.stop();game=null;pieces=makePieces(previewBoard);selected=null;render();return;}
   if(action==='start'){
     const key=currency==='crypto'&&walletConnected?'crypto':'gold';
@@ -599,7 +605,7 @@ app.addEventListener('click',event=>{
     game=next;
     if(game.finished){inventory.collect(game);settleRound(game);}
     soundPreview.start();
-    pieces=makePieces(game.board);selected=null;busy=false;bagOpen=false;render();return;
+    pieces=makePieces(game.board);selected=null;busy=false;render();return;
   }
   if(ignoreClick){ignoreClick=false;return;}
   const cell=event.target.closest('.gem');if(cell)choose(Number(cell.dataset.row),Number(cell.dataset.col));
@@ -638,11 +644,6 @@ app.addEventListener('keydown', event => {
       if(event.shiftKey&&i<=0){event.preventDefault();buttons.at(-1).focus();}
       else if(!event.shiftKey&&(i===buttons.length-1||i===-1)){event.preventDefault();buttons[0].focus();}
     }
-    return;
-  }
-  if (bagOpen) {
-    if (event.key === 'Escape') { bagOpen = false; render(); app.querySelector('[data-action="bag"]')?.focus(); }
-    else if (event.key === 'Tab') { event.preventDefault(); app.querySelector('[data-action="close-bag"]').focus(); }
     return;
   }
   if (!rating && game?.finished && event.key === 'Tab') {
