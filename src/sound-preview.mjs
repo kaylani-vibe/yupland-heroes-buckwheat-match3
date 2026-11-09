@@ -17,12 +17,29 @@ function savedSettings() {
   } catch { return { ...defaults }; }
 }
 
-export function createSoundPreview() {
+export function createSoundPreview(preloadMusic = false) {
   let settings = savedSettings();
   let context;
   let buffer;
   let music;
   let effectsBus;
+  // Yupland Heroes (08.11): Safari и iPhone не играют музыку, если сервер не отдаёт файл
+  // частями (Range), а наш отдаёт только целиком. Музыку скачиваем заранее и играем из
+  // памяти (blob:); нажали «Играть» раньше — как докачается, переключаемся и играем.
+  const musicUrl = `${import.meta.env.BASE_URL}audio/theme.mp3`;
+  let musicMemory = null;
+  let wantMusic = false;
+  if (preloadMusic) fetch(musicUrl)
+    .then(response => (response.ok ? response.blob() : null))
+    .then(blob => {
+      if (!blob) return;
+      musicMemory = URL.createObjectURL(blob);
+      if (music && wantMusic && music.paused) {
+        music.src = musicMemory;
+        void music.play().catch(() => {});
+      }
+    })
+    .catch(() => {});
 
   function applySettings() {
     if (music) music.volume = settings.musicEnabled ? 0.19 * settings.musicLevel / 70 : 0;
@@ -40,7 +57,8 @@ export function createSoundPreview() {
   }
 
   function start() {
-    music ??= new Audio(`${import.meta.env.BASE_URL}audio/theme.mp3`);
+    wantMusic = true;
+    music ??= new Audio(musicMemory ?? musicUrl);
     music.loop = true;
     applySettings();
     void music.play().catch(() => {});
@@ -61,6 +79,7 @@ export function createSoundPreview() {
   }
 
   function stop() {
+    wantMusic = false;
     if (!music) return;
     music.pause();
     music.currentTime = 0;

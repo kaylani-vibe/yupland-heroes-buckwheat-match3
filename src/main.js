@@ -5,21 +5,35 @@ import './start.css';
 import './evening.css';
 import './sound.css';
 import {titles,crownLabel,translate,localize} from './i18n.mjs';
-import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,STONE,HOLE,ENTRY_COLS,EXITS,SPECIAL,colorOf,specialType,createGame,playSwap,finishBonuses,payout} from './engine.mjs';
+import {COLS,ROWS,MOVES,TARGET_CROWNS,CROWN,STONE,HOLE,ENTRY_COLS,EXITS,SPECIAL,colorOf,specialType,createGame,canSwap,playSwap,finishBonuses,payout} from './engine.mjs';
 import {createInventory} from './inventory.mjs';
+import {bridge,inventory as serverInventory,serverGame,applyMove,takeFinale,errorText,warmImages} from './bridge.mjs';
 import {createSoundPreview} from './sound-preview.mjs';
 
 // Keyed pieces and the remove/fall/refill sequence adapt PlayBoard.tsx from
 // the developer-supplied YupMatch archive (02 Nov 2026).
 const names=['гречневое зерно','колос','лист','ягоды','цветок','корона'];
+const siteDemo=import.meta.env.MODE==='site-demo';
+function hasGameHost(){
+  if(siteDemo||window.parent===window)return false;
+  try{return window.parent.location.origin===location.origin;}catch{return false;}
+}
+const embedded=hasGameHost();
+if(embedded)warmImages();
+const demoSession=siteDemo?new URLSearchParams(location.search).get('session'):null;
+function notifyDemoHost(type){
+  if(demoSession&&window.parent!==window){
+    window.parent.postMessage({type,session:demoSession},location.origin);
+  }
+}
 const app=document.querySelector('#app');
-const soundPreview=createSoundPreview();
+const soundPreview=createSoundPreview(embedded);
 const previewBoard=createGame().board;
 let nextId=1,game=null,selected=null,pointerStart=null,ignoreClick=false,busy=false;
 let finale=null;
 let pieces=makePieces(previewBoard),exitOpen=false,soundOpen=false;
 const qaMode=import.meta.env.DEV&&[...new URLSearchParams(location.search).keys()].some(k=>k.startsWith('qa'));
-const inventory=createInventory(localStorage,qaMode?'buckwheat-match3:qa-crowns':'buckwheat-match3:crowns');
+const inventory=embedded?serverInventory:siteDemo?null:createInventory(localStorage,qaMode?'buckwheat-match3:qa-crowns':'buckwheat-match3:crowns');
 const language=new URLSearchParams(location.search).get('lang')==='en'?'en':'ru';
 const tr=value=>translate(value,language);
 const crownWord=n=>crownLabel(n,language);
@@ -27,7 +41,7 @@ const walletPreview = import.meta.env.DEV && new URLSearchParams(location.search
 let walletConnected = walletPreview && new URLSearchParams(location.search).get('qaWallet') === 'connected';
 let currency = 'gold';
 let walletNotice = false;
-let rating = import.meta.env.DEV && new URLSearchParams(location.search).has('qaRating') ? 'grecha' : null;
+let rating = !embedded && import.meta.env.DEV && new URLSearchParams(location.search).has('qaRating') ? 'grecha' : null;
 const paymentMethods = {
   gold: { name: 'Золото', price: '100', initialBalance: 1250, multiplier: 1, action: 'Играть за 100 золота' },
   crypto: { name: 'Darai', price: '100 000', initialBalance: 350000, multiplier: 1000, action: 'Играть за 100 000 Darai' },
@@ -55,12 +69,13 @@ function recordGrecha(round) {
 const balanceKey=qaMode?'buckwheat-match3:qa-balances':'buckwheat-match3:balances';
 const balances=Object.fromEntries(Object.entries(paymentMethods).map(([key,method])=>[key,method.initialBalance]));
 try {
-  const saved=JSON.parse(localStorage.getItem(balanceKey));
+  const saved=siteDemo||embedded?null:JSON.parse(localStorage.getItem(balanceKey));
   for(const key of Object.keys(balances)){
     if(Number.isSafeInteger(saved?.[key])&&saved[key]>=0)balances[key]=saved[key];
   }
 }catch{}
 let balanceNotice=false;
+let serverNotice='',ratingRows=null,starting=false,exiting=false,serverLoading=embedded;
 
 function updateBalance(key, amount) {
   balances[key]+=amount;
@@ -68,7 +83,12 @@ function updateBalance(key, amount) {
 }
 
 function settleRound(round) {
-  if(!round||round.settlement)return;
+  if(siteDemo||!round||round.settlement)return;
+  if(embedded){
+    round.settlement=round.serverSettlement ? {amount:round.serverSettlement.returned} : null;
+    takeServerBalances();
+    return;
+  }
   const {returned}=payout(round);
   const {multiplier}=paymentMethods[round.entryCurrency];
   const amount=returned*multiplier;
@@ -77,33 +97,52 @@ function settleRound(round) {
   recordGrecha(round);
 }
 
+function takeServerBalances(){balances.gold=bridge.gold;balances.crypto=bridge.darai;}
+
+// Yupland Heroes: слова партии на фантики (08.11) — сразу на языке игрока.
+const DEMO_WORDS = {
+  name: ['Фантики', 'Play coins'], demo: ['Демо', 'Demo'],
+  play: ['Играть за 100 фантиков', 'Play for 100 play coins'], unit: ['фантиков', 'play coins'],
+};
+const demoWord = key => DEMO_WORDS[key][language === 'en' ? 1 : 0];
+
 function startWindow() {
+  if(embedded){
+    walletConnected=bridge.daraiOpen&&!bridge.demo;
+    if(!walletConnected)currency='gold';
+  }
   const methods = walletConnected ? ['gold', 'crypto'] : ['gold'];
   return `<div class="overlay start-overlay">
-    <section class="green-start" role="dialog" aria-modal="true" aria-labelledby="start-title">
+    <section class="green-start${siteDemo ? ' site-demo-start' : ''}" role="dialog" aria-modal="true" aria-labelledby="start-title">
       <div class="start-content">
         <h2 id="start-title">Верни короны</h2>
         <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
         <p class="start-goal">Опусти 3 короны за ${MOVES} ходов</p>
-        ${walletConnected
+        ${siteDemo ? '<p class="start-goal site-demo-note">Результат демопартии не сохраняется</p><button class="primary start-play" data-action="start">Играть</button>' : `
+        ${embedded ? '' : walletConnected
           ? '<p class="wallet-status">Кошелёк подключён</p>'
           : '<button class="start-secondary wallet-status" data-action="wallet">Подключить кошелёк</button>'}
-        ${walletNotice ? '<p class="wallet-notice" role="status">Подключение кошелька сейчас недоступно</p>' : ''}
+        ${serverNotice ? `<p class="wallet-notice" role="status">${serverNotice}</p>` : ''}
+        ${!embedded && walletNotice ? '<p class="wallet-notice" role="status">Подключение кошелька сейчас недоступно</p>' : ''}
         ${balanceNotice ? `<p class="wallet-notice balance-notice" role="status">${language==='en'?'Insufficient balance':'Недостаточно средств для входа'}</p>` : ''}
         <fieldset class="payment-methods" aria-label="Валюта входа">
           ${methods.map(key => {
             const method = paymentMethods[key];
+            const coins=embedded&&bridge.demo&&bridge.pass;
+            const balance=coins?demoWord('demo'):`Баланс ${formatRating(balances[key])}`;
             return `<label class="payment-row">
               <input type="radio" name="entry-currency" value="${key}" ${currency === key ? 'checked' : ''}>
-              <strong>${method.name}</strong>
-              <span><b>Вход ${method.price}</b><small>Баланс ${formatRating(balances[key])}</small></span>
+              <strong>${coins?demoWord('name'):method.name}</strong>
+              <span><b>Вход ${method.price}</b><small>${balance}</small></span>
             </label>`;
           }).join('')}
         </fieldset>
-        <button class="primary start-play" data-action="start">${paymentMethods[currency].action}</button>
+        <button class="primary start-play" data-action="start" ${serverLoading?'disabled':''}>${embedded&&bridge.demo&&bridge.pass?demoWord('play'):paymentMethods[currency].action}</button>
         <div class="start-links">
           <button class="start-secondary" data-action="rating"><span class="start-action-icon start-action-rating" aria-hidden="true"></span>Рейтинг</button>
+          ${embedded&&bridge.admin?`<button class="start-secondary" data-action="stats">${tr('Статистика')}</button>`: ''}
         </div>
+        `}
       </div>
     </section>
   </div>`;
@@ -115,8 +154,9 @@ function exitWindow() {
       <div class="start-content exit-content">
         <h2 id="exit-title">Выйти из игры?</h2>
         <img class="start-divider" src="${import.meta.env.BASE_URL}art/start-divider.webp" alt="">
-        <p id="exit-message">Прогресс текущей партии будет потерян. Продолжить её позже не получится.</p>
-        <p class="exit-kept">${language==='en'?'Collected crowns will be paid out in your entry currency.':'За полученные короны начислится выплата в валюте входа.'}</p>
+        ${embedded&&serverNotice?`<p class="wallet-notice" role="status">${serverNotice}</p>`: ''}
+        <p id="exit-message">Прогресс текущей партии будет потерян. Продолжить её позже не получится.</p>${siteDemo ? '' : `
+        <p class="exit-kept">${language==='en'?'Collected crowns will be paid out in your entry currency.':'За полученные короны начислится выплата в валюте входа.'}</p>`}
         <button class="primary start-play" data-action="cancel-exit">Продолжить игру</button>
         <button class="start-secondary exit-confirm" data-action="confirm-exit">Выйти</button>
       </div>
@@ -148,25 +188,25 @@ const emptyCrown = '<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M12 53 
 function resultWindow() {
   const earned = game.crowns;
   const won = earned === TARGET_CROWNS;
-  const payoutAmount = game.settlement.amount;
-  const unit = game.entryCurrency === 'crypto' ? 'Darai' : language === 'en' ? 'gold' : 'золота';
+  const payoutAmount = game.settlement?.amount;
+  const unit = embedded&&bridge.demo ? demoWord('unit') : game.entryCurrency === 'crypto' ? 'Darai' : language === 'en' ? 'gold' : 'золота';
   const label = 'Ваш выигрыш';
-  const amount = `${formatRating(payoutAmount)} ${unit}`;
+  const amount = Number.isFinite(payoutAmount) ? `${formatRating(payoutAmount)} ${unit}` : '—';
   const slots = earned === 1 ? [false,true,false] : Array.from({length:TARGET_CROWNS},(_,i)=>i<earned);
   return `<div class="overlay start-overlay result-overlay">
     <section class="green-start green-result ${won ? 'result-won' : ''}" role="dialog" aria-modal="true" aria-labelledby="result-title" tabindex="-1">
       <div class="start-content result-content">
         <div class="result-summary">
-          <h2 id="result-title">${won ? 'Поздравляем!' : label}</h2>
-          ${won ? `<p class="result-caption">${label}</p>` : ''}
-          <p class="round-result">${amount}</p>
+          <h2 id="result-title">${won ? 'Поздравляем!' : siteDemo ? 'Партия завершена' : label}</h2>${won && !siteDemo ? `
+          <p class="result-caption">${label}</p>` : ''}${siteDemo ? '' : `
+          <p class="round-result">${amount}</p>`}
           <div class="result-crowns" role="img" aria-label="Доставлено корон: ${earned} из ${TARGET_CROWNS}">${slots.map(filled => `<div class="result-crown ${filled ? 'crown-earned' : 'crown-missing'}">${filled ? icon(CROWN) : emptyCrown}</div>`).join('')}</div>
         </div>
         <div class="result-details">
-          <p class="result-earned"><span>Всего опущено корон</span> <b>${formatRating(inventory.count())}</b></p>
+          ${siteDemo ? `<p class="result-earned"><span>Опущено корон</span> <b>${earned} / ${TARGET_CROWNS}</b></p>` : `<p class="result-earned"><span>Всего опущено корон</span> <b>${formatRating(inventory.count())}</b></p>`}
           <p class="result-grecha">${icon(0)}<span>Греча за партию <b>${formatRating(game.grecha)}</b></span></p>
-          <button class="primary start-play" data-action="restart">Играть ещё</button>
-          <button class="result-rating" data-action="rating"><span class="start-action-icon start-action-rating" aria-hidden="true"></span>Рейтинг</button>
+          <button class="primary start-play" data-action="restart">Играть ещё</button>${siteDemo ? '' : `
+          <button class="result-rating" data-action="rating"><span class="start-action-icon start-action-rating" aria-hidden="true"></span>Рейтинг</button>`}
         </div>
       </div>
     </section>
@@ -186,16 +226,20 @@ function ratingRow(player, place, own = false) {
   return `<tr class="${own ? 'rating-own' : ''}">
     <td class="rating-place"><span class="${place <= 3 ? `rank-medal rank-${place}` : ''}">${place}</span></td>
     <th scope="row">${player.name}</th>
-    <td class="rating-score">${icon(rating === 'grecha' ? 0 : CROWN)}<span>${formatRating(rating === 'grecha' ? player.bestGrecha : player.crowns)}</span></td>
+    <td class="rating-score">${icon(rating === 'grecha' ? 0 : CROWN)}<span>${formatRating(rating === 'grecha' ? (embedded?player.grecha:player.bestGrecha) : player.crowns)}</span></td>
   </tr>`;
 }
 function ratingWindow() {
   const byGrecha=rating==='grecha';
-  const savedRecord=byGrecha?readGrechaRecord():null;
+  const savedRecord=byGrecha&&!embedded?readGrechaRecord():null;
   const record=grechaRecord===null?savedRecord:Math.max(grechaRecord,savedRecord??0);
   const players=[...ratingPreview];
   if(byGrecha&&record!==null)players.push({name:'Ты',bestGrecha:record,own:true});
   players.sort(byGrecha?(a,b)=>b.bestGrecha-a.bestGrecha:(a,b)=>b.crowns-a.crowns);
+  const serverRows=ratingRows?.[rating]??[];
+  const showTable=embedded?serverRows.length>0:qaMode;
+  const topRows=embedded?serverRows.filter(row=>row.place<=10):players;
+  const ownRows=embedded?serverRows.filter(row=>row.place>10&&row.own):byGrecha?[]:[{name:'Ты',crowns:24,place:18}];
   return `<div class="overlay start-overlay rating-overlay">
     <section class="green-start green-rating" role="dialog" aria-modal="true" aria-labelledby="rating-title">
       <div class="start-content rating-content">
@@ -205,13 +249,13 @@ function ratingWindow() {
           <button data-action="rating-grecha" aria-pressed="${rating === 'grecha'}">${icon(0)}Греча</button>
           <button data-action="rating-crowns" aria-pressed="${rating === 'crowns'}">${icon(CROWN)}Короны</button>
         </div>
-        <p class="rating-subtitle">${byGrecha ? 'Лучшая партия по грече' : 'По доставленным коронам'}</p>
+        <p class="rating-subtitle">${byGrecha ? (embedded?'По всей собранной грече':'Лучшая партия по грече') : 'По доставленным коронам'}</p>
         <div class="rating-results" aria-live="polite">
-          ${qaMode ? `<table class="rating-table" aria-label="${rating === 'grecha' ? 'Рейтинг по грече' : 'Рейтинг по коронам'}">
-            <colgroup><col class="rating-place-column"><col><col class="rating-score-column"></colgroup><thead class="visually-hidden"><tr><th>Место</th><th>Игрок</th><th>${byGrecha ? 'Рекорд за партию' : 'Результат'}</th></tr></thead>
-            <tbody>${players.map((player,i)=>ratingRow(player,i+1,player.own)).join('')}</tbody>
-            ${byGrecha ? '' : `<tbody><tr class="rating-gap" aria-hidden="true"><td colspan="3">···</td></tr>
-            ${ratingRow({name:'Ты',crowns:24},18,true)}</tbody>`}
+          ${showTable ? `<table class="rating-table" aria-label="${rating === 'grecha' ? 'Рейтинг по грече' : 'Рейтинг по коронам'}">
+            <colgroup><col class="rating-place-column"><col><col class="rating-score-column"></colgroup><thead class="visually-hidden"><tr><th>Место</th><th>Игрок</th><th>${byGrecha&&!embedded ? 'Рекорд за партию' : 'Результат'}</th></tr></thead>
+            <tbody>${topRows.map((player,i)=>ratingRow(player,embedded?player.place:i+1,player.own)).join('')}</tbody>
+            ${ownRows.map(player=>`<tbody><tr class="rating-gap" aria-hidden="true"><td colspan="3">···</td></tr>
+            ${ratingRow(player,player.place,true)}</tbody>`).join('')}
           </table>` : `<div class="rating-empty"><span class="start-action-icon start-action-rating" aria-hidden="true"></span><p>Рейтинг сейчас недоступен</p>${byGrecha&&record!==null?`<p><span>Твой рекорд за партию</span> <b>${formatRating(record)}</b></p>`:''}</div>`}
         </div>
         <button class="primary start-play" data-action="close-rating">Вернуться</button>
@@ -279,10 +323,32 @@ function cellMarkup(value,row,col){
   const entry=row===0&&ENTRY_COLS.includes(col),exit=EXITS.some(cell=>cell.row===row&&cell.col===col);
   return `<button class="cell gem ${chosen?'selected':''} ${entry?'entry':''} ${exit?'exit':''}" data-row="${row}" data-col="${col}" aria-label="${label||'пусто'}, ряд ${row+1}, столбец ${col+1}${entry?', вход короны':''}${exit?', выход короны':''}" aria-pressed="${chosen}"></button>`;
 }
+// Yupland Heroes (08.11, «картинки моргают, верхняя строка дёргается при каждом ходе»):
+// render() собирал весь экран заново (app.innerHTML) — Safari на кадр показывал рамку и
+// заголовок пустыми, строка «Опусти 3 короны / Ходы» перерисовывалась целиком. Теперь новая
+// разметка сверяется с той, что на экране (morph): меняется только то, что изменилось,
+// узлы, картинки и фокус остаются на месте.
+function morph(from,to){
+  if(from.nodeType===1&&to.nodeType===1){
+    for(const {name} of [...from.attributes])if(!to.hasAttribute(name))from.removeAttribute(name);
+    for(const {name,value} of [...to.attributes])if(from.getAttribute(name)!==value)from.setAttribute(name,value);
+    if(from.tagName==='INPUT'){if(from.checked!==to.checked)from.checked=to.checked;if(from.value!==to.value)from.value=to.value;}
+  }
+  const a=[...from.childNodes],b=[...to.childNodes];
+  b.forEach((y,i)=>{
+    const x=a[i];
+    if(!x){from.appendChild(y);return;}
+    if(x.nodeType!==y.nodeType||x.nodeName!==y.nodeName||(x.nodeType===1&&x.getAttribute('data-id')!==y.getAttribute('data-id'))){from.replaceChild(y,x);return;}
+    if(x.nodeType!==1){if(x.nodeValue!==y.nodeValue)x.nodeValue=y.nodeValue;return;}
+    morph(x,y);
+  });
+  for(let i=a.length-1;i>=b.length;i--)from.removeChild(a[i]);
+}
 function render(){
   const started=!!game,finished=game?.finished,board=game?.board??previewBoard;
   const crowns=game?.crowns??0;
-  app.innerHTML=`<main class="shell">
+  const next=document.createElement('template');
+  next.innerHTML=`<main class="shell">
     <nav class="game-topbar" aria-label="Выход из игры и звук">
       <button class="exit-game" data-action="exit-game"><svg viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M13 4 1 16l12 12v-7h17V11H13V4Z"/></svg><span>Выйти</span></button>
       <button class="sound-open" data-action="sound" aria-label="Настройки звука" aria-haspopup="dialog" aria-expanded="${soundOpen}"><svg viewBox="0 0 32 32" aria-hidden="true"><path fill="currentColor" d="M3 12h5l8-7v22l-8-7H3z"/><path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" d="M21 11c3 3 3 7 0 10m4-14c5 5 5 13 0 18"/></svg></button>
@@ -302,7 +368,7 @@ function render(){
         <div class="mission-plaque"><p aria-label="${language === 'en' ? 'Bring 3 crowns to the exits' : 'Опусти 3 короны к выходу'}">Опусти <b>3</b> ${icon(CROWN)} к выходу</p></div>
         <div class="stat moves-stat"><span class="stat-label">Ходы</span><strong class="moves-count">${started?game.moves:MOVES}</strong></div>
       </div>
-      <div class="journey-strip"><div class="crown-tally" aria-label="Доставлено корон: ${crowns} из 3">${icon(CROWN)}<b>${crowns}<span> / ${TARGET_CROWNS}</span></b></div>${started && !finished ? '<button class="journey-rating" data-action="rating" aria-label="Открыть рейтинг" title="Рейтинг"><span class="start-action-icon start-action-rating" aria-hidden="true"></span></button>' : '<span class="status-divider" aria-hidden="true"></span>'}<div class="grecha-tally">${icon(0)}<span>Греча <b>${game?.grecha??0}</b></span></div></div>
+      <div class="journey-strip"><div class="crown-tally" aria-label="Доставлено корон: ${crowns} из 3">${icon(CROWN)}<b>${crowns}<span> / ${TARGET_CROWNS}</span></b></div>${started && !finished && !siteDemo ? '<button class="journey-rating" data-action="rating" aria-label="Открыть рейтинг" title="Рейтинг"><span class="start-action-icon start-action-rating" aria-hidden="true"></span></button>' : '<span class="status-divider" aria-hidden="true"></span>'}<div class="grecha-tally">${icon(0)}<span>Греча <b>${game?.grecha??0}</b></span></div></div>
       <div class="board-area"><div class="board-frame">
         <img class="board-art" src="${import.meta.env.BASE_URL}art/kingdom-frame.webp?v=compact-20261104" alt="" draggable="false">
         <div class="board" role="group" aria-label="Поле: меняй соседние фишки местами">${board.map((line,row)=>line.map((value,col)=>cellMarkup(value,row,col)).join('')).join('')}<div class="piece-layer" aria-hidden="true">${pieces.map(pieceMarkup).join('')}</div><div class="effect-layer" aria-hidden="true"></div></div><div class="route-layer" aria-hidden="true">${routeMarkers()}</div>
@@ -316,7 +382,8 @@ function render(){
   </main>`;
   document.documentElement.lang=language;
   document.title=`${titles[language].join(' ')} — Yupland Heroes`;
-  localize(app,language);
+  localize(next.content,language);
+  morph(app,next.content);
   if(exitOpen)for(const child of app.querySelector('.shell').children)if(!child.classList.contains('exit-overlay'))child.inert=true;
   if(soundOpen)for(const child of app.querySelector('.shell').children)if(!child.classList.contains('sound-overlay'))child.inert=true;
 }
@@ -490,7 +557,7 @@ async function playFinale() {
   shell.append(overlay);
   overlay.focus({preventScroll:true});
   updateRoundCounters();
-  const animation=finishBonuses(game);
+  const animation=embedded?takeFinale(game):finishBonuses(game);
   try{
     const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
     if(animation.steps.length && !reduced){
@@ -517,13 +584,64 @@ async function playFinale() {
   }
 }
 
+function resumeRound(open){
+  if(!open)return;
+  game=serverGame(open.state,open.currency);
+  currency=game.entryCurrency;
+  inventory.collect(game);
+  pieces=makePieces(game.board);selected=null;pointerStart=null;rating=null;render();
+}
+
+async function loadServerRound(){
+  const init=await bridge.load();
+  takeServerBalances();
+  serverNotice='';
+  if(!game&&init.game)resumeRound(init.game);
+}
+
+async function startRound(){
+  if(starting||serverLoading)return;
+  starting=true;
+  soundPreview.start();
+  try{
+    const init=await bridge.start(currency==='crypto'?'darai':'gold');
+    serverNotice='';
+    takeServerBalances();
+    resumeRound(init.game);
+  }catch(error){serverNotice=errorText(error,language==='en');takeServerBalances();render();}
+  finally{starting=false;}
+}
+
+async function exitRound(){
+  if(exiting)return;
+  exiting=true;
+  try{
+    if(game&&!game.finished)await bridge.exit(game);
+    takeServerBalances();
+    game=null;pieces=makePieces(previewBoard);selected=null;pointerStart=null;
+    rating=null;exitOpen=false;serverNotice='';
+  }catch(error){serverNotice=errorText(error,language==='en');}
+  finally{exiting=false;}
+  render();
+  app.querySelector(exitOpen?'[data-action="cancel-exit"]':'[data-action="start"]')?.focus();
+}
+
+function loadRating(){
+  bridge.rating().then(rows=>{
+    ratingRows=rows;
+    if(rating)render();
+  }).catch(()=>{});
+}
+
 async function performSwap(a,b){
   if(!game||game.finished||busy)return;
   busy=true;selected=null;
-  const valid=playSwap(game,a,b);
+  const request=embedded&&canSwap(game.board,a,b)?bridge.move(a,b).catch(()=>null):null;
+  const localValid=!embedded&&playSwap(game,a,b);
   await animateSwap(a,b);
+  const valid=embedded?applyMove(game,await request):localValid;
   if(!valid){await animateSwap(a,b);busy=false;render();return;}
-  inventory.collect(game);
+  inventory?.collect(game);
   const selectedCell=app.querySelector('.cell.selected');
   selectedCell?.classList.remove('selected');
   selectedCell?.setAttribute('aria-pressed','false');
@@ -533,13 +651,21 @@ async function performSwap(a,b){
   busy=false;render();
   if(game.finished)app.querySelector('.green-result')?.focus();
 }
+// Yupland Heroes (08.11, «подлагивает»): выбор клетки только помечает клетки, весь экран
+// не пересобирается (раньше — полная перерисовка на каждое касание).
+function markSelected(){
+  for(const cell of app.querySelectorAll('.cell.gem')){
+    const on=!!selected&&Number(cell.dataset.row)===selected.row&&Number(cell.dataset.col)===selected.col;
+    cell.classList.toggle('selected',on);cell.setAttribute('aria-pressed',String(on));
+  }
+}
 function choose(row,col){
   if(!game||game.finished||busy)return;
   const target={row,col};
-  if(!selected){selected=target;render();return;}
-  if(selected.row===row&&selected.col===col){selected=null;render();return;}
+  if(!selected){selected=target;markSelected();return;}
+  if(selected.row===row&&selected.col===col){selected=null;markSelected();return;}
   const a=selected;
-  if(Math.abs(a.row-row)+Math.abs(a.col-col)!==1){selected=target;render();return;}
+  if(Math.abs(a.row-row)+Math.abs(a.col-col)!==1){selected=target;markSelected();return;}
   void performSwap(a,target);
 }
 app.addEventListener('change', event => {
@@ -549,7 +675,7 @@ app.addEventListener('change', event => {
   currency = event.target.value;
   balanceNotice=false;
   app.querySelector('.balance-notice')?.remove();
-  app.querySelector('.start-play').textContent = tr(paymentMethods[currency].action);
+  app.querySelector('.start-play').textContent = embedded&&bridge.demo&&bridge.pass ? demoWord('play') : tr(paymentMethods[currency].action);
 });
 
 app.addEventListener('input',event=>{
@@ -564,17 +690,21 @@ app.addEventListener('input',event=>{
 app.addEventListener('click',event=>{
   if(finale){finale.abort();return;}
   const action=event.target.closest('[data-action]')?.dataset.action;
-  if (busy) return;
+  if (busy||starting||exiting) return;
   if(action==='sound'){soundOpen=true;render();app.querySelector('.sound-dialog').focus();return;}
   if(action==='close-sound'||event.target.classList.contains('sound-overlay')){soundOpen=false;render();app.querySelector('[data-action="sound"]').focus();return;}
   if(soundOpen)return;
   if(action==='exit-game'){
+    if(embedded&&(!game||game.finished)){bridge.close();return;}
+    serverNotice='';
     exitOpen=true;pointerStart=null;render();app.querySelector('[data-action="cancel-exit"]').focus();return;
   }
   if(action==='cancel-exit'){
     exitOpen=false;render();app.querySelector('[data-action="exit-game"]').focus();return;
   }
   if(action==='confirm-exit'){
+    if(embedded){void exitRound();return;}
+    if(demoSession&&window.parent!==window){notifyDemoHost('yupland:demo-close');return;}
     settleRound(game);
     soundPreview.stop();
     game=null;pieces=makePieces(previewBoard);selected=null;pointerStart=null;
@@ -588,22 +718,27 @@ app.addEventListener('click',event=>{
   }
   if (action === 'rating' || action === 'rating-grecha' || action === 'rating-crowns') {
     rating = action === 'rating-crowns' ? 'crowns' : 'grecha';
+    if(embedded&&action==='rating')loadRating();
     render();
     app.querySelector(`.rating-metrics [data-action="rating-${rating}"]`).focus();
     return;
   }
   if (action === 'close-rating') { rating = null; render(); app.querySelector('[data-action="rating"]')?.focus(); return; }
-  if(action==='restart'){soundPreview.stop();game=null;pieces=makePieces(previewBoard);selected=null;render();return;}
+  if(action==='stats'&&embedded){bridge.stats();return;}
+  if(action==='restart'){if(!embedded)soundPreview.stop();game=null;pieces=makePieces(previewBoard);selected=null;render();return;}
   if(action==='start'){
+    if(embedded){void startRound();return;}
     const key=currency==='crypto'&&walletConnected?'crypto':'gold';
     const next=newGame();
-    const entry=payout(next).entry*paymentMethods[key].multiplier;
-    if(balances[key]<entry){balanceNotice=true;render();return;}
-    balanceNotice=false;
-    next.entryCurrency=key;
-    updateBalance(key,-entry);
+    if(!siteDemo){
+      const entry=payout(next).entry*paymentMethods[key].multiplier;
+      if(balances[key]<entry){balanceNotice=true;render();return;}
+      balanceNotice=false;
+      next.entryCurrency=key;
+      updateBalance(key,-entry);
+    }
     game=next;
-    if(game.finished){inventory.collect(game);settleRound(game);}
+    if(game.finished){inventory?.collect(game);settleRound(game);}
     soundPreview.start();
     pieces=makePieces(game.board);selected=null;busy=false;render();return;
   }
@@ -619,6 +754,7 @@ app.addEventListener('pointerup',event=>{
   ignoreClick=true;setTimeout(()=>{ignoreClick=false;},0);void performSwap(origin,to);
 });
 render();
+notifyDemoHost('yupland:demo-ready');
 
 app.addEventListener('keydown', event => {
   if(finale){
@@ -646,6 +782,9 @@ app.addEventListener('keydown', event => {
     }
     return;
   }
+  if(demoSession&&!rating&&event.key==='Escape'){
+    event.preventDefault();notifyDemoHost('yupland:demo-close');return;
+  }
   if (!rating && game?.finished && event.key === 'Tab') {
     const controls = [...app.querySelectorAll('.green-result button')];
     const index = controls.indexOf(document.activeElement);
@@ -664,3 +803,15 @@ app.addEventListener('keydown', event => {
     else if (!event.shiftKey && (index === controls.length - 1 || index === -1)) { event.preventDefault(); controls[0].focus(); }
   }
 });
+
+
+if(embedded){
+  loadServerRound().catch(error=>{serverNotice=errorText(error,language==='en');})
+    .finally(()=>{serverLoading=false;render();});
+  soundPreview.start();
+  for(const kind of ['pointerdown','keydown'])addEventListener(kind,()=>soundPreview.start(),{once:true,capture:true});
+  bridge.onRefresh=()=>{
+    if(starting||exiting||serverLoading||(game&&!game.finished))return;
+    loadServerRound().then(()=>{if(!game)render();}).catch(()=>{});
+  };
+}
