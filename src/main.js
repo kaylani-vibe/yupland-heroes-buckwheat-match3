@@ -191,7 +191,9 @@ function resultWindow() {
   const payoutAmount = game.settlement?.amount;
   const unit = embedded&&bridge.demo ? demoWord('unit') : game.entryCurrency === 'crypto' ? 'Darai' : language === 'en' ? 'gold' : 'золота';
   const label = 'Ваш выигрыш';
-  const amount = Number.isFinite(payoutAmount) ? `${formatRating(payoutAmount)} ${unit}` : '—';
+  const amount = Number.isFinite(payoutAmount)
+    ? `${payoutAmount > 0 ? '+' : ''}${formatRating(payoutAmount)} ${unit}`
+    : '—';
   const slots = earned === 1 ? [false,true,false] : Array.from({length:TARGET_CROWNS},(_,i)=>i<earned);
   return `<div class="overlay start-overlay result-overlay">
     <section class="green-start green-result ${won ? 'result-won' : ''}" role="dialog" aria-modal="true" aria-labelledby="result-title" tabindex="-1">
