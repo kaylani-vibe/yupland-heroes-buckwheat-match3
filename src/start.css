@@ -177,6 +177,20 @@ p.wallet-status {
 .rating-score-column { width: 94px; }
 @media (max-width: 380px) { .rating-place-column { width: 31px; } .rating-score-column { width: 77px; } }
 
+/* The leaderboard scrolls inside the oak frame: the window never grows past the screen,
+   the title, tabs and «Вернуться» stay put, and only the table rows scroll. Low landscape
+   screens keep their two-column layout; there the table just gets a height cap. */
+@media not ((orientation: landscape) and (max-height: 500px)) {
+  .green-start.green-rating { display: flex; flex-direction: column; }
+  .green-start.green-rating .rating-content { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  .green-start.green-rating .rating-content > * { flex: none; }
+  .green-start.green-rating .rating-results { flex: 1 1 auto; min-height: 48px; }
+}
+.green-start.green-rating .rating-results { overflow-y: auto; overscroll-behavior: contain; }
+@media (orientation: landscape) and (max-height: 500px) {
+  .green-start.green-rating .rating-results { max-height: calc(100dvh - 190px); }
+}
+
 .bag-content { padding: clamp(105px, 31cqw, 130px) 10% 12%; }
 .bag-item { position: relative; width: 68%; aspect-ratio: 1.16; margin: 9px auto 0; padding: 12px; border-radius: 25px; background: #596b2780; border: 1px solid #929d4f; box-shadow: inset 0 3px 8px #19240990, inset 0 0 0 2px #b5bb6240; }
 .bag-item > .icon { width: 100%; height: 100%; filter: drop-shadow(0 5px 4px #101704a0); }
